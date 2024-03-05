@@ -21,9 +21,6 @@ import pyodbc
 
 import traceback
 
-# import random
-# import string
-
 from dash import callback_context
 
 #%% START APP
@@ -1496,5 +1493,6 @@ def detect_deleted_row_diversen_page4(current_data, previous_data):
     return alert_msg, current_data
     
     return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
 if __name__ == '__main__':
     app.run_server(debug=True)
