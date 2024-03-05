@@ -23,6 +23,11 @@ import traceback
 
 from dash import callback_context
 
+from sqlalchemy import create_engine, text
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+
+import logging
 #%% START APP
 # Initialize Dash app
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
@@ -36,6 +41,14 @@ password = 'assw2024'  # Replace with your SQL Server password
 
 # Create a connection string
 conn_str = f'DRIVER={{SQL Server}};SERVER={server_name};DATABASE={database_name};UID={username};PWD={password}'
+
+conn_str2 = f'mssql+pyodbc://{username}:{password}@{server_name}/{database_name}?driver=ODBC+Driver+17+for+SQL+Server'
+
+# Define Database Engine (replace conn_str with your actual connection string)
+engine = create_engine(conn_str2)
+
+# Create a Session Maker
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 #%% DEFINE STORES
 # Dummy data for stores
@@ -1043,120 +1056,108 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
 
 #%%% CALLBACKS PAGE 2 
 # Callback to populate the stock overview table on Page 2
-@app.callback(
-    Output('stock-table-ijs', 'data'),
-    [Input('url', 'pathname')],
-    # prevent_initial_call=True
-)
-def show_stock_table_ijs(pathname):
-    # print(f"Updating stock table for path: {pathname}")  # Debug print
-    if pathname == '/ijs':
-        try:
-            # Connect to the database and execute the query
-            with pyodbc.connect(conn_str, timeout=10) as conn:  # Added timeout for the connection
-                query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type], [InStock] FROM [dbo].[DATA] WHERE [InStock] = 1"
-                stock_df = pd.read_sql(query, conn)
-                data = stock_df.to_dict('records')
-                
-            # Convert the DataFrame to a format Dash DataTable can use
-            return data
-        except Exception as e:
-            print("Error updating stock table:", e)
-            traceback.print_exc()  # Helps to debug if there's an error
-            return []  # Return an empty list if there's an error
-    raise PreventUpdate  # Don't update the table if we're not on Page 2
-
 # @app.callback(
-#     [Output('barcode-status-ijs-page2', 'children'),
-#      Output('stock-table-ijs', 'data', allow_duplicate=True),
-#      Output('barcode-input-ijs-page2', 'value'),
-#      Output('barcode-output-ijs-page2', 'value')],
-#     [Input('update-ijs-database-button', 'n_clicks')],
-#     [State('barcode-input-ijs-page2', 'value'),
-#      State('barcode-output-ijs-page2', 'value')],
-#     prevent_initial_call=True
+#     Output('stock-table-ijs', 'data'),
+#     [Input('url', 'pathname')],
+#     # prevent_initial_call=True
 # )
-# def update_stock_table_ijs(n_clicks, barcode_input, barcode_output):
-#     # Check if the update button is clicked and inputs are provided
-#     if n_clicks > 0:
+# def show_stock_table_ijs(pathname):
+#     # print(f"Updating stock table for path: {pathname}")  # Debug print
+#     if pathname == '/ijs':
 #         try:
-#             alerts = []
-#             data = []
-
-#             # Update input table
-#             if barcode_input is not None:
-#                 with pyodbc.connect(conn_str, timeout=10) as conn:
-#                     cursor = conn.cursor()
-#                     cursor.execute("UPDATE [dbo].[DATA] SET [InStock] = 1 WHERE [ID] = ?", barcode_input)
-#                     conn.commit()
-#                 alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and added to stock.', color="success"))
-                
-#             # Update output table
-#             if barcode_output is not None:
-#                 with pyodbc.connect(conn_str, timeout=10) as conn:
-#                     cursor = conn.cursor()
-#                     cursor.execute("UPDATE [dbo].[DATA] SET [InStock] = 0 WHERE [ID] = ?", barcode_output)
-#                     conn.commit()
-#                 alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and set out of stock.', color="success"))
-
-#             # Get updated data for the DataTable
-#             with pyodbc.connect(conn_str, timeout=10) as conn:
+#             # Connect to the database and execute the query
+#             with pyodbc.connect(conn_str, timeout=10) as conn:  # Added timeout for the connection
 #                 query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type], [InStock] FROM [dbo].[DATA] WHERE [InStock] = 1"
 #                 stock_df = pd.read_sql(query, conn)
 #                 data = stock_df.to_dict('records')
-
-#             return alerts[0] if len(alerts) > 0 else None, data, None, None
+                
+#             # Convert the DataFrame to a format Dash DataTable can use
+#             return data
 #         except Exception as e:
 #             print("Error updating stock table:", e)
-#             traceback.print_exc()
-#             return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), [], None, None, None, None
+#             traceback.print_exc()  # Helps to debug if there's an error
+#             return []  # Return an empty list if there's an error
+#     raise PreventUpdate  # Don't update the table if we're not on Page 2
+
+# Example callback function assuming a table named 'DATA'
+@app.callback(
+    Output('stock-table-ijs', 'data'),
+    [Input('url', 'pathname')],
+)
+def show_stock_table_ijs(pathname):
+    if pathname == '/ijs':
+        try:
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+
+            # Execute the query using SQLAlchemy
+            query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type], [InStock] FROM [dbo].[DATA] WHERE [InStock] = 1"
+            stock_df = pd.read_sql(query, db.bind)
+
+            # Convert DataFrame to dictionary and return data
+            data = stock_df.to_dict('records')
+            return data
+        except Exception as e:
+            logging.error("Error fetching data:", e)  # Consider using logging for error messages
+            return []  # Return empty list or display an error message
+        finally:
+            # Ensure session is closed even on exceptions
+            db.close()
+    raise PreventUpdate  # Don't update if not on Page 2
     
-#     # If the update button is not clicked or if inputs are not provided, return no updates
-#     return dash.no_update, dash.no_update, dash.no_update, dash.no_update
-
-
+    
 @app.callback(
     [Output('barcode-status-ijs-page2', 'children'),
-     Output('stock-table-ijs', 'data', allow_duplicate=True),
-     Output('barcode-input-ijs-page2', 'value'),
-     Output('barcode-output-ijs-page2', 'value')],
+      Output('stock-table-ijs', 'data', allow_duplicate=True),
+      Output('barcode-input-ijs-page2', 'value'),
+      Output('barcode-output-ijs-page2', 'value')],
     [Input('barcode-input-ijs-page2', 'n_submit'),
-     Input('barcode-output-ijs-page2', 'n_submit'),
-     State('barcode-input-ijs-page2', 'value'),
-     State('barcode-output-ijs-page2', 'value')],
+      Input('barcode-output-ijs-page2', 'n_submit'),
+      State('barcode-input-ijs-page2', 'value'),
+      State('barcode-output-ijs-page2', 'value')],
     prevent_initial_call=True,
 )
 def scan_barcode_ijs_page2(dummy1, dummy2, barcode_input, barcode_output):
     if barcode_input is None and barcode_output is None:
         raise PreventUpdate  # No barcode entered, do nothing
-    
+
     # Initialize the alert message
     alerts = []
 
-    # Connect to the database
-    if barcode_input is not None:
-        with pyodbc.connect(conn_str, timeout=10) as conn:
-            cursor = conn.cursor()
-            cursor.execute("UPDATE [dbo].[DATA] SET [InStock] = 1 WHERE [ID] = ?", barcode_input)
-            conn.commit()
-        alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and set to in stock.', color="success"))
-    
-    # Update output table
-    if barcode_output is not None:
-        with pyodbc.connect(conn_str, timeout=10) as conn:
-            cursor = conn.cursor()
-            cursor.execute("UPDATE [dbo].[DATA] SET [InStock] = 0 WHERE [ID] = ?", barcode_output)
-            conn.commit()
-        alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and set out of stock.', color="success"))
+    try:
+        # Create a database session
+        db = SessionLocal()
 
-    # Get updated data for the DataTable
-    with pyodbc.connect(conn_str, timeout=10) as conn:
+        # Update barcode status (if input is not None)
+        if barcode_input is not None:
+            query = text("UPDATE [dbo].[DATA] SET [InStock] = 1 WHERE [ID] = :barcode").params(barcode=barcode_input)
+            db.execute(query)
+            alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and set to in stock.', color="success"))
+            db.commit()
+
+        # Update barcode status (if output is not None)
+        if barcode_output is not None:
+            query = text("UPDATE [dbo].[DATA] SET [InStock] = 0 WHERE [ID] = :barcode").params(barcode=barcode_output)
+            db.execute(query)
+            alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and set out of stock.', color="success"))
+            db.commit()
+
+        # Get updated data for the DataTable
         query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type], [InStock] FROM [dbo].[DATA] WHERE [InStock] = 1"
-        stock_df = pd.read_sql(query, conn)
+        stock_df = pd.read_sql(query, db.bind)
         data = stock_df.to_dict('records')
-    
+
+    except Exception as e:
+        logging.error("Error fetching or updating data:", e)
+        # Handle errors gracefully (e.g., display an error message)
+        return None, None, None, None  # Example for resetting all outputs on error
+
+    finally:
+        # Close the session even on exceptions
+        db.close()
+
     return alerts[0] if len(alerts) > 0 else None, data, None, None
-        
+
 #%%% CALLBACKS PAGE 3 
 # Callback to populate the stock overview table on Page 3
 @app.callback(
@@ -1165,23 +1166,27 @@ def scan_barcode_ijs_page2(dummy1, dummy2, barcode_input, barcode_output):
     # prevent_initial_call=True
 )
 def show_stock_table_taart(pathname):
-    # print(f"Updating stock table for path: {pathname}")  # Debug print
     if pathname == '/taart':
         try:
-            # Connect to the database and execute the query
-            with pyodbc.connect(conn_str, timeout=10) as conn:  # Added timeout for the connection
-                query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[TAART]"
-                stock_df = pd.read_sql(query, conn)
-                data = stock_df.to_dict('records')
-                
-            # Convert the DataFrame to a format Dash DataTable can use
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+
+            # Execute the query using SQLAlchemy
+            query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[TAART]"
+            stock_df = pd.read_sql(query, db.bind)
+
+            # Convert DataFrame to dictionary and return data
+            data = stock_df.to_dict('records')
+            
             return data
         except Exception as e:
-            print("Error updating stock table:", e)
-            traceback.print_exc()  # Helps to debug if there's an error
-            return []  # Return an empty list if there's an error
-    raise PreventUpdate  # Don't update the table if we're not on Page 3
-
+            logging.error("Error fetching data:", e)  # Consider using logging for error messages
+            return []  # Return empty list or display an error message
+        finally:
+            # Ensure session is closed even on exceptions
+            db.close()
+    raise PreventUpdate  # Don't update if not on Page 3
+    
 @app.callback(
     [Output('barcode-status-taart-page3', 'children'),
      Output('stock-table-taart', 'data', allow_duplicate=True),
@@ -1327,30 +1332,35 @@ def detect_deleted_row_taart_page3(current_data, previous_data):
 
 
 #%%% CALLBACKS PAGE 4
-# Callback to populate the stock overview table on Page 3
+# Callback to populate the stock overview table on Page 4
 @app.callback(
     Output('stock-table-diversen', 'data'),
     [Input('url', 'pathname')],
     # prevent_initial_call=True
 )
 def show_stock_table_diversen(pathname):
-    # print(f"Updating stock table for path: {pathname}")  # Debug print
     if pathname == '/diversen':
         try:
-            # Connect to the database and execute the query
-            with pyodbc.connect(conn_str, timeout=10) as conn:  # Added timeout for the connection
-                query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
-                stock_df = pd.read_sql(query, conn)
-                data = stock_df.to_dict('records')
-                
-            # Convert the DataFrame to a format Dash DataTable can use
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+
+            # Execute the query using SQLAlchemy
+            query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
+            stock_df = pd.read_sql(query, db.bind)
+
+            # Convert DataFrame to dictionary and return data
+            data = stock_df.to_dict('records')
+            
             return data
         except Exception as e:
-            print("Error updating stock table:", e)
-            traceback.print_exc()  # Helps to debug if there's an error
-            return []  # Return an empty list if there's an error
-    raise PreventUpdate  # Don't update the table if we're not on Page 3
-
+            logging.error("Error fetching data:", e)  # Consider using logging for error messages
+            return []  # Return empty list or display an error message
+        finally:
+            # Ensure session is closed even on exceptions
+            db.close()
+    raise PreventUpdate  # Don't update if not on Page 4
+    
+    
 @app.callback(
     [Output('barcode-status-diversen-page4', 'children'),
      Output('stock-table-diversen', 'data', allow_duplicate=True),
