@@ -1,10 +1,6 @@
 #%% IMPORT PACKAGES
-<<<<<<< HEAD
 import os
 import shutil
-=======
-# import os
->>>>>>> ab4f590572fa540126c05fd7c10c2ac8e1fbb7db
 import json
 import dash
 import dash_bootstrap_components as dbc
@@ -36,17 +32,10 @@ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_
 
 #%% DEFINE SQL PARAMETERS
 # Define the connection parameters
-<<<<<<< HEAD
 server_name = 'A7\\SQLEXPRESS'  # Replace with your SQL Server instance name or IP address
 database_name = 'AS-SW'  # Replace with your database name
 username = 'assw'  # Replace with your SQL Server username
 password = 'assw2024'  # Replace with your SQL Server password
-=======
-server_name = 'DESKTOP-B05JCBI\\SQLEXPRESS'  # Replace with your SQL Server instance name or IP address
-database_name = 'IceCreams'  # Replace with your database name
-username = 'gas'  # Replace with your SQL Server username
-password = 'gas2024'  # Replace with your SQL Server password
->>>>>>> ab4f590572fa540126c05fd7c10c2ac8e1fbb7db
 
 # Create a connection string
 conn_str = f'DRIVER={{SQL Server}};SERVER={server_name};DATABASE={database_name};UID={username};PWD={password}'
@@ -55,14 +44,8 @@ conn_str = f'DRIVER={{SQL Server}};SERVER={server_name};DATABASE={database_name}
 # Dummy data for stores
 stores = [
     {'label': 'Bitterkoud Den Haag', 'value': 'BKDH'},
-<<<<<<< HEAD
     {'label': 'Luciano Delft Buitenhof', 'value': 'LDB'},
     {'label': 'Luciano Delft Centrum', 'value': 'LDC'},
-=======
-    {'label': 'Luciano Delft Centrum', 'value': 'LDC'},
-    {'label': 'Moments Voorschoten', 'value': 'MV'},
-    {'label': 'Luciano Delft Buitenhof', 'value': 'LDB'},
->>>>>>> ab4f590572fa540126c05fd7c10c2ac8e1fbb7db
     {'label': 'Luciano Den Haag', 'value': 'LDH'},
     {'label': 'Luciano Heemstede', 'value': 'LHE'},
     {'label': 'Luciano Hoofddorp', 'value': 'LHD'},
@@ -71,7 +54,6 @@ stores = [
     {'label': 'Luciano Overveen', 'value': 'LO'},
     {'label': 'Luciano Rijswijk', 'value': 'LR'},
     {'label': 'Luciano Waddinxveen', 'value': 'LWV'},
-<<<<<<< HEAD
     {'label': 'Luciano Wassenaar', 'value': 'LWN'},
     {'label': 'Luciano Wassenaar HQ', 'value': 'LWHQ'},
     {'label': 'Luciano Woerden', 'value': 'LWD'},
@@ -85,15 +67,6 @@ store_library = {}
 for i, store in enumerate(stores, 1):
     store_library[store['label']] = i
 
-=======
-    {'label': 'Luciano Wassenaar HQ', 'value': 'LWHQ'},
-    {'label': 'Luciano Wassenaar', 'value': 'LWN'},
-    {'label': 'Luciano Woerden', 'value': 'LWD'},
-    {'label': 'Luciano Zandvoort XL', 'value': 'LZXL'},
-    {'label': 'Luciano Zandvoort XS', 'value': 'LZXS'},
-]
-
->>>>>>> ab4f590572fa540126c05fd7c10c2ac8e1fbb7db
 #%% DEFINE PAKBON DATAFRAMES [PAGE 1]
 # Initial empty DataFrame to store product details
 df_products = pd.DataFrame(columns=['Barcode', 'Type', 'Omschrijving', 'Gewicht [kg]'])
@@ -141,7 +114,6 @@ page_1_layout = dbc.Container([
                         dbc.Col([
                             dbc.Button('Laad laatst opgeslagen pakbon in', id='load_last_saved_products-button', n_clicks=0, color="primary"),
                         ], width=4, className="d-flex justify-content-end"),  # This column takes 3 out of 12 columns and aligns its content to the end
-<<<<<<< HEAD
                         dbc.Col([
                             dbc.Button('Maak pakbon leeg', id='clear_form-button', n_clicks=0, color="warning"),
                             dbc.Modal(
@@ -159,11 +131,6 @@ page_1_layout = dbc.Container([
                                 centered=True,
                             ),
                         ], width=4, className="d-flex justify-content-end"),  # This column takes 3 out of 12 columns and aligns its content to the end
-=======
-                        # dbc.Col([
-                        #     dbc.Button('Maak pakbon leeg', id='clear_form-button', n_clicks=0, color="warning"),
-                        # ], width=4, className="d-flex justify-content-end"),  # This column takes 3 out of 12 columns and aligns its content to the end
->>>>>>> ab4f590572fa540126c05fd7c10c2ac8e1fbb7db
                     ]),
                     html.Div(id='pdf-generation-status', className="mt-2")
                 ])
@@ -447,10 +414,7 @@ page_4_layout = dbc.Container([
             dbc.Card([
                     dbc.CardHeader("VOORRAAD"),
                     dbc.CardBody([
-<<<<<<< HEAD
                         html.Div(id='deleted-row-diversen-page4', className="mt-2"),  # This will display the status after checking the barcode
-=======
->>>>>>> ab4f590572fa540126c05fd7c10c2ac8e1fbb7db
                         dash_table.DataTable(
                             id='stock-table-diversen',
                             # editable=False,
@@ -519,7 +483,6 @@ def load_last_saved_form(n_clicks, products, taarten, diversen):
         return [], [], []
 
 @app.callback(
-<<<<<<< HEAD
     Output("confirm_modal", "is_open"),
     [Input("clear_form-button", "n_clicks"), 
      Input("confirm_clear", "n_clicks")],
@@ -552,22 +515,6 @@ def clear_form(confirm_clear_clicks):
     else:
         # Return some default values or data if needed
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
-=======
-    [Output('ijs-table-page1', 'data', allow_duplicate=True),
-      Output('taart-table-page1', 'data', allow_duplicate=True),
-      Output('diversen-table-page1', 'data', allow_duplicate=True)],
-    [Input('clear_form-button', 'n_clicks')],  # Triggered by the new button click
-    prevent_initial_call=True
-)
-def clear_form(n_clicks):
-    # Perform some action here when the new button is clicked
-    if n_clicks is not None and n_clicks > 0:
-        # Your action here, for example:
-        return [], [], []
-    else:
-        # If button is not clicked yet, return default value
-        return [], [], []
->>>>>>> ab4f590572fa540126c05fd7c10c2ac8e1fbb7db
 
 #%%%% IJS
 @app.callback(
@@ -969,14 +916,10 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
     
         # Format the date and time as yyyy-mm-dd HH:MM:SS
         formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
-<<<<<<< HEAD
         
         # Define the path to the folder where you want to save the PDFs
         pdf_folder = 'Orders_Pdfs'
         
-=======
-    
->>>>>>> ab4f590572fa540126c05fd7c10c2ac8e1fbb7db
         # Define PDF filename based on the store name for uniqueness
         pdf_filename = f'{store}_{formatted_date1}.pdf'
         
@@ -1044,7 +987,6 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
         doc.build(elements)
     
         if store and (products or taarten or diversen):
-<<<<<<< HEAD
 
             # Move the file
             try:
@@ -1063,8 +1005,6 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
             except Exception as e:
                 print(f"Error moving file: {e}")
                 
-=======
->>>>>>> ab4f590572fa540126c05fd7c10c2ac8e1fbb7db
             
             # After sending the email successfully
             try:
@@ -1072,7 +1012,6 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
                 #     f"Pakbon {store} {formatted_date1}",
                 #     "Hier is een PDF van de pakbon doorgestuurd vanuit Luciano Voorraad Beheer.",
                 #     "luukaltenburg@gmail.com",  # Replace with actual recipient's email
-<<<<<<< HEAD
                 #     os.path.join(pdf_folder, pdf_filename)
                 # )
                 
@@ -1080,14 +1019,6 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
                 new_entry = [
                     f'{store}_{formatted_date2}',     # Order ID
                     f'{store_id}',    # Customer ID
-=======
-                #     pdf_filename
-                # )
-
-                new_entry = [
-                    f'{store}_{formatted_date2}',     # Order ID
-                    f'{store_label}',    # Customer ID
->>>>>>> ab4f590572fa540126c05fd7c10c2ac8e1fbb7db
                     f'{formatted_date1}',   # Order Date
                     "FALSE",      # Status
                     f"Orders_Pdfs/{store}_{formatted_date2}.pdf",  # File
@@ -1102,11 +1033,7 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
                 return dbc.Alert("PDF generated and emailed successfully!", color="success"), [], [], []
             except Exception as e:
                 # Return error message and keep the table data unchanged
-<<<<<<< HEAD
                 return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), [], [], []
-=======
-                return dbc.Alert(f"An error occurred: {str(e)}", color="danger")
->>>>>>> ab4f590572fa540126c05fd7c10c2ac8e1fbb7db
         else:
             # Alerts for missing information, keep the table data unchanged
             alert_msg = "Please select a store and add products before generating a PDF."
@@ -1390,11 +1317,7 @@ def detect_deleted_row_taart_page3(current_data, previous_data):
                         with conn.cursor() as cursor:
                             cursor.execute("DELETE FROM [dbo].[TAART] WHERE [ID] = ?", deleted_id)
                             conn.commit()
-<<<<<<< HEAD
                     alert_msg = dbc.Alert(f"Barcode {deleted_id} deleted from database.", color="success")
-=======
-                    alert_msg = dbc.Alert(f"Barcode {deleted_id} updated in database; set as in stock.", color="success")
->>>>>>> ab4f590572fa540126c05fd7c10c2ac8e1fbb7db
                 except Exception as e:
                     alert_msg = dbc.Alert(f"Failed to update barcode {deleted_id} in database: {str(e)}", color="danger")
             else:
@@ -1518,7 +1441,6 @@ def add_diversen_to_database(n_clicks, description, item_count):
                 return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), dash.no_update, dash.no_update, dash.no_update
         else:
             return dbc.Alert("Please provide both description and item count.", color="warning"), dash.no_update, dash.no_update, dash.no_update
-<<<<<<< HEAD
 
 @app.callback(
     [Output('deleted-row-diversen-page4', 'children'),
@@ -1572,8 +1494,6 @@ def detect_deleted_row_diversen_page4(current_data, previous_data):
         alert_msg = dbc.Alert("No rows have been deleted.", color="warning")
 
     return alert_msg, current_data
-=======
->>>>>>> ab4f590572fa540126c05fd7c10c2ac8e1fbb7db
     
     return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 if __name__ == '__main__':
