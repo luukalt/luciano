@@ -696,7 +696,7 @@ def scan_barcode_taart_page1(_, barcode, rows):
         }
         rows.append(new_row)
 
-        alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database and item was in stock. Now marked as out of stock.', color="success")
+        alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database and item was in stock.', color="success")
     else:
         # The barcode does not exist in the database or item is not in stock
         
@@ -762,7 +762,7 @@ def detect_deleted_row_taart_page1(current_data, previous_data):
                     
                     # Create a database session using SessionLocal
                     db = SessionLocal()
-                    delete_query = text("UPDATE [dbo].[TAART] SET [InStock] = 1 WHERE [ID] = :deleted_id")
+                    delete_query = text("UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] + 1 WHERE [ID] = :deleted_id")
                     db.execute(delete_query, {"deleted_id": deleted_id})
                     
                     # Commit changes to the database
@@ -827,7 +827,7 @@ def scan_barcode_diversen_page1(_, barcode, rows):
         }
         rows.append(new_row)
 
-        alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database and item was in stock. Now marked as out of stock.', color="success")
+        alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database and item was in stock.', color="success")
     else:
         # The barcode does not exist in the database or item is not in stock
         
@@ -892,7 +892,7 @@ def detect_deleted_row_diversen_page1(current_data, previous_data):
                     
                     # Create a database session using SessionLocal
                     db = SessionLocal()
-                    delete_query = text("UPDATE [dbo].[DIVERSEN] SET [InStock] = 1 WHERE [ID] = :deleted_id")
+                    delete_query = text("UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] + 1 WHERE [ID] = :deleted_id")
                     db.execute(delete_query, {"deleted_id": deleted_id})
                     
                     # Commit changes to the database
