@@ -21,7 +21,65 @@ def data_to_write():
     ]
     return [new_entry]
 
-def write_data_to_sheet(data):
+def clear_sheet(service, spreadsheet_id, range_name):
+    """Clears the specified range in a Google Sheet."""
+    service.spreadsheets().values().clear(
+        spreadsheetId=spreadsheet_id,
+        range=range_name,
+        body={}
+    ).execute()
+
+def write_dataframe_to_sheet(dataframe, spreadsheet_id, range_name, credentials):
+    """Writes a DataFrame to a Google Sheet."""
+    try:
+        service = build('sheets', 'v4', credentials=credentials)
+        
+        # Clear existing data in the sheet
+        clear_sheet(service, spreadsheet_id, range_name)
+        
+        # Convert DataFrame to list of lists
+        values = [dataframe.columns.tolist()] + dataframe.values.tolist()
+        
+        # Call the Sheets API to update the values
+        result = service.spreadsheets().values().update(
+            spreadsheetId=spreadsheet_id,
+            range=range_name,
+            valueInputOption="USER_ENTERED",
+            body={"values": values}
+        ).execute()
+
+        print("Data written successfully!")
+        print(result)
+    except HttpError as err:
+        print(err)
+
+def write_data_to_supply_sheet(sheet_name, data):
+    """Writes data to the supply sheet."""
+    # If modifying these scopes, delete the file token.json.
+    SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+
+    # The ID and range of the sample spreadsheet.
+    SAMPLE_SPREADSHEET_ID = '1_ndw8fGpmkJSPuV3damUE8FePXLySymcxuyTGKLdy78'
+    SAMPLE_RANGE_NAME = f'{sheet_name}!A:B'
+
+    creds = None
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(
+                'credentials.json', SCOPES)
+            creds = flow.run_local_server(port=3000)
+        
+        with open('token.json', 'w') as token:
+            token.write(creds.to_json())
+
+    write_dataframe_to_sheet(data, SAMPLE_SPREADSHEET_ID, SAMPLE_RANGE_NAME, creds)
+        
+def write_data_to_appsheet(data):
 
     # If modifying these scopes, delete the file token.json.
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
@@ -138,5 +196,5 @@ if __name__ == '__main__':
         "This is a note"  # Note
     ]
 
-    write_data_to_sheet([new_entry])
+    write_data_to_appsheet([new_entry])
     

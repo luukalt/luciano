@@ -18,7 +18,7 @@ from sqlalchemy.orm import sessionmaker
 
 # USER MODULES
 from email_utils import send_email
-from gsheet_utils import write_data_to_sheet
+from gsheet_utils import write_data_to_appsheet, write_data_to_supply_sheet
 
 #%% START APP
 # Initialize Dash app
@@ -46,6 +46,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # Dummy data for stores
 stores = [
     {'label': 'Bitterkoud Den Haag', 'value': 'BKDH'},
+    {'label': 'Luciano Alphen', 'value': 'LA'},
     {'label': 'Luciano Delft Buitenhof', 'value': 'LDB'},
     {'label': 'Luciano Delft Centrum', 'value': 'LDC'},
     {'label': 'Luciano Den Haag', 'value': 'LDH'},
@@ -54,7 +55,6 @@ stores = [
     {'label': 'Luciano Leiden', 'value': 'LL'},
     {'label': 'Luciano Maassluis', 'value': 'LM'},
     {'label': 'Luciano Overveen', 'value': 'LO'},
-    {'label': 'Luciano Rijswijk', 'value': 'LR'},
     {'label': 'Luciano Waddinxveen', 'value': 'LWV'},
     {'label': 'Luciano Wassenaar', 'value': 'LWN'},
     {'label': 'Luciano Wassenaar HQ', 'value': 'LWHQ'},
@@ -74,6 +74,9 @@ for i, store in enumerate(stores, 1):
 df_products = pd.DataFrame(columns=['Barcode', 'Type', 'Omschrijving', 'Gewicht [kg]'])
 df_taart = pd.DataFrame(columns=['Barcode', 'Omschrijving'])
 df_diversen = pd.DataFrame(columns=['Barcode', 'Omschrijving'])
+
+# Define columns for google sheet supply (TAART + DIVERSEN)
+selected_columns = ['Description', 'ItemCount']  # Adjust column names as needed
 
 #%% Define a navigation bar
 navbar = dbc.NavbarSimple(
@@ -276,6 +279,28 @@ page_2_layout = dbc.Container([
                     ])
                 ]),
         ], width=6),
+        dbc.Col([
+            dbc.Card([
+                    dbc.CardHeader("VOORRAAD PER STUK"),
+                    dbc.CardBody([
+                        html.Div(id='supply-timestamp-ijs-page2', className="mt-2"),
+                        dash_table.DataTable(
+                            id='stock-count-table-ijs',
+                            # editable=False,
+                            # row_deletable=True,
+                            # filter_action='native',  # Enable filtering
+                            # sort_action='native',  # Enable sorting
+                            style_table={'overflowX': 'auto'},
+                            # page_action='none',
+                            style_cell={
+                                'minWidth': '100px', 'width': '150px', 'maxWidth': '180px',
+                                'overflow': 'hidden',
+                                'textOverflow': 'ellipsis',
+                            }
+                        )
+                    ])
+                ]),
+        ], width=3),
     ], className="mt-3"),
 ], fluid=True)
 
@@ -337,6 +362,7 @@ page_3_layout = dbc.Container([
             dbc.Card([
                     dbc.CardHeader("VOORRAAD"),
                     dbc.CardBody([
+                        html.Div(id='supply-timestamp-taart-page3', className="mt-2"),
                         html.Div(id='deleted-row-taart-page3', className="mt-2"),  # This will display the status after checking the barcode
                         dash_table.DataTable(
                             id='stock-table-taart',
@@ -416,6 +442,7 @@ page_4_layout = dbc.Container([
             dbc.Card([
                     dbc.CardHeader("VOORRAAD"),
                     dbc.CardBody([
+                        html.Div(id='supply-timestamp-diversen-page4', className="mt-2"),
                         html.Div(id='deleted-row-diversen-page4', className="mt-2"),  # This will display the status after checking the barcode
                         dash_table.DataTable(
                             id='stock-table-diversen',
@@ -1012,7 +1039,81 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
                 elements.append(table)
                 # elements.append(Spacer(1, 10))
                 
-    
+        # IJS
+        # Initialize dictionaries to store totals
+        type_count = {}
+        type_weight = {}
+        
+        # Calculate totals for each type
+        for product in products:
+            product_type = product['Type']
+            if product_type not in type_count:
+                type_count[product_type] = 1
+                type_weight[product_type] = product['Gewicht [kg]']
+            else:
+                type_count[product_type] += 1
+                type_weight[product_type] += product['Gewicht [kg]']
+        
+        # Add totals table to the PDF
+        type_totals_data = [['Type', 'Aantal', 'Totaal Gewicht [kg]']]
+        for product_type, count in type_count.items():
+            type_totals_data.append([product_type, count, type_weight[product_type]])
+        
+        # Adding a paragraph to describe the totals table
+        totals_description = Paragraph("IJS TOTAAL", styles['Heading2'])
+        elements.append(totals_description)
+        
+        # Setting up the table for totals
+        totals_table = Table(type_totals_data, colWidths=[100, 60, 100])  # Specify column widths as needed
+        totals_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.white),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+            ('ALIGNMENT', (0, 0), (-1, -1), 'LEFT'),  # Align text to the left
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('BOX', (0, 0), (-1, -1), 2, colors.black),
+        ]))
+        totals_table.hAlign = 'LEFT'  # Options are 'LEFT', 'CENTER', 'RIGHT'
+        elements.append(totals_table)
+        
+        for table in [(taarten, "TAARTEN"), (diversen, "DIVERSEN")]:
+            
+            items = table[0]
+            name = table[1]
+            
+            # Initialize dictionaries to store totals
+            barcode_count = {}
+            
+            # Calculate totals for each type
+            for item in items:
+                item_barcode = item['Omschrijving']
+                if item_barcode not in barcode_count:
+                    barcode_count[item_barcode] = 1
+                else:
+                    barcode_count[item_barcode] += 1
+            
+            # Add totals table to the PDF
+            items_totals_data = [['Omschrijving', 'Aantal']]
+            for item_barcode, count in barcode_count.items():
+                items_totals_data.append([item_barcode, count])
+            
+            # Adding a paragraph to describe the totals table
+            totals_description = Paragraph(f"{name} TOTAAL", styles['Heading2'])
+            elements.append(totals_description)
+            
+            # Setting up the table for totals
+            totals_table = Table(items_totals_data, colWidths=[100, 60, 100])  # Specify column widths as needed
+            totals_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.white),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                ('ALIGNMENT', (0, 0), (-1, -1), 'LEFT'),  # Align text to the left
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('BOX', (0, 0), (-1, -1), 2, colors.black),
+            ]))
+            totals_table.hAlign = 'LEFT'  # Options are 'LEFT', 'CENTER', 'RIGHT'
+            elements.append(totals_table)
+        
         # Build the PDF
         doc.build(elements)
     
@@ -1057,7 +1158,7 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
                     None  # Note
                 ]
                 
-                write_data_to_sheet(new_entry)
+                write_data_to_appsheet(new_entry)
 
                 # Return success message and empty the table
                 return dbc.Alert("PDF generated and emailed successfully!", color="success"), [], [], []
@@ -1077,7 +1178,9 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
 #%%% CALLBACKS PAGE 2 
 # Callback to populate the stock overview table on Page 2
 @app.callback(
-    Output('stock-table-ijs', 'data'),
+    [Output('supply-timestamp-ijs-page2', 'children'),
+     Output('stock-table-ijs', 'data'),
+     Output('stock-count-table-ijs', 'data')],
     [Input('url', 'pathname')],
 )
 def show_stock_table_ijs(pathname):
@@ -1087,15 +1190,28 @@ def show_stock_table_ijs(pathname):
             db = SessionLocal()
 
             # Execute the query using SQLAlchemy
-            query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type], [InStock] FROM [dbo].[DATA] WHERE [InStock] = 1"
+            query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type] FROM [dbo].[DATA] WHERE [InStock] = 1"
             stock_df = pd.read_sql(query, db.bind)
+            
+            # Group by Description and calculate the count
+            count_df = stock_df.groupby('Description').size().reset_index(name='ItemCount')
 
             # Convert DataFrame to dictionary and return data
-            data = stock_df.to_dict('records')
-            return data
+            stock_data = stock_df.to_dict('records')
+            
+            count_data = count_df.to_dict('records')
+            
+            write_data_to_supply_sheet("IJS", count_df)
+            
+            current_datetime = datetime.datetime.now()
+            formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            alert_msg = dbc.Alert(formatted_datetime, color="primary")
+            
+            return alert_msg, stock_data, count_data
+        
         except Exception as e:
             logging.error("Error fetching data:", e)  # Consider using logging for error messages
-            return []  # Return empty list or display an error message
+            return None, []  # Return empty list or display an error message
         finally:
             # Ensure session is closed even on exceptions
             db.close()
@@ -1103,10 +1219,12 @@ def show_stock_table_ijs(pathname):
     
     
 @app.callback(
-    [Output('barcode-status-ijs-page2', 'children'),
-      Output('stock-table-ijs', 'data', allow_duplicate=True),
-      Output('barcode-input-ijs-page2', 'value'),
-      Output('barcode-output-ijs-page2', 'value')],
+    [Output('supply-timestamp-ijs-page2', 'children', allow_duplicate=True),
+     Output('barcode-status-ijs-page2', 'children'),
+     Output('stock-table-ijs', 'data', allow_duplicate=True),
+     Output('stock-count-table-ijs', 'data', allow_duplicate=True),
+     Output('barcode-input-ijs-page2', 'value'),
+     Output('barcode-output-ijs-page2', 'value')],
     [Input('barcode-input-ijs-page2', 'n_submit'),
       Input('barcode-output-ijs-page2', 'n_submit'),
       State('barcode-input-ijs-page2', 'value'),
@@ -1121,7 +1239,7 @@ def scan_barcode_ijs_page2(dummy1, dummy2, barcode_input, barcode_output):
         
         # Initialize the alert message
         alerts = []
-
+        
         # Create a database session
         db = SessionLocal()
 
@@ -1140,25 +1258,39 @@ def scan_barcode_ijs_page2(dummy1, dummy2, barcode_input, barcode_output):
             db.commit()
 
         # Get updated data for the DataTable
-        query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type], [InStock] FROM [dbo].[DATA] WHERE [InStock] = 1"
+        query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type] FROM [dbo].[DATA] WHERE [InStock] = 1"
         stock_df = pd.read_sql(query, db.bind)
-        data = stock_df.to_dict('records')
+        
+        # Group by Description and calculate the count
+        count_df = stock_df.groupby('Description').size().reset_index(name='ItemCount')
+        
+        stock_data = stock_df.to_dict('records')
+        
+        count_data = count_df.to_dict('records')
+        
+        write_data_to_supply_sheet("IJS", count_df)
+        
+        current_datetime = datetime.datetime.now()
+        formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            
+        alert_msg = dbc.Alert(formatted_datetime, color="primary")
 
     except Exception as e:
         logging.error("Error fetching or updating data:", e)
         # Handle errors gracefully (e.g., display an error message)
-        return None, None, None, None  # Example for resetting all outputs on error
+        return None, None, None, None, None, None  # Example for resetting all outputs on error
 
     finally:
         # Close the session even on exceptions
         db.close()
 
-    return alerts[0] if len(alerts) > 0 else None, data, None, None
+    return alert_msg, alerts[0] if len(alerts) > 0 else None, stock_data, count_data, None, None
 
 #%%% CALLBACKS PAGE 3 
 # Callback to populate the stock overview table on Page 3
 @app.callback(
-    Output('stock-table-taart', 'data'),
+    [Output('supply-timestamp-taart-page3', 'children'),
+     Output('stock-table-taart', 'data')],
     [Input('url', 'pathname')],
     # prevent_initial_call=True
 )
@@ -1175,17 +1307,24 @@ def show_stock_table_taart(pathname):
             # Convert DataFrame to dictionary and return data
             data = stock_df.to_dict('records')
             
-            return data
+            write_data_to_supply_sheet("TAART", stock_df[selected_columns])
+            
+            current_datetime = datetime.datetime.now()
+            formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            alert_msg = dbc.Alert(formatted_datetime, color="primary")
+            
+            return alert_msg, data
         except Exception as e:
             logging.error("Error fetching data:", e)  # Consider using logging for error messages
-            return []  # Return empty list or display an error message
+            return None, []  # Return empty list or display an error message
         finally:
             # Ensure session is closed even on exceptions
             db.close()
     raise PreventUpdate  # Don't update if not on Page 3
     
 @app.callback(
-    [Output('barcode-status-taart-page3', 'children'),
+    [Output('supply-timestamp-taart-page3', 'children', allow_duplicate=True),
+     Output('barcode-status-taart-page3', 'children'),
      Output('stock-table-taart', 'data', allow_duplicate=True),
      Output('barcode-input-taart-page3', 'value'),
      Output('taart-count-input', 'value'),
@@ -1236,14 +1375,20 @@ def update_stock_table_taart(n_clicks, barcode_input, item_count_input, barcode_
             data = stock_df.to_dict('records')
             
             db.close()
-
-            return alerts[0] if len(alerts) > 0 else None, data, None, None, None, None
+            
+            write_data_to_supply_sheet("TAART", stock_df[selected_columns])
+            
+            current_datetime = datetime.datetime.now()
+            formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            alert_msg = dbc.Alert(formatted_datetime, color="primary")
+            
+            return alert_msg, alerts[0] if len(alerts) > 0 else None, data, None, None, None, None
         except Exception as e:
             logging.error("Error updating stock table:", e)  # Consider using logging for error messages
             return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), [], None, None, None, None
     
     # If the update button is not clicked or if inputs are not provided, return no updates
-    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
 @app.callback(
     [Output('add-taart-status', 'children'),
@@ -1278,6 +1423,8 @@ def add_taart_to_database(n_clicks, description, item_count):
                 data = stock_df.to_dict('records')
                 
                 db.close()
+                
+                # write_data_to_supply_sheet("TAART", stock_df[selected_columns])
                 
                 return dbc.Alert("New item added to the database.", color="success"), data, None, None
             except Exception as e:
@@ -1336,6 +1483,11 @@ def detect_deleted_row_taart_page3(current_data, previous_data):
                     db.commit()
                     
                     db.close()
+                    
+                    query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[TAART]"
+                    stock_df = pd.read_sql(query, db.bind)
+                    
+                    # write_data_to_supply_sheet("TAART", stock_df[selected_columns])
                    
                     alert_msg = dbc.Alert(f"Barcode {deleted_id} deleted from database.", color="success")
                 except Exception as e:
@@ -1352,7 +1504,8 @@ def detect_deleted_row_taart_page3(current_data, previous_data):
 #%%% CALLBACKS PAGE 4
 # Callback to populate the stock overview table on Page 4
 @app.callback(
-    Output('stock-table-diversen', 'data'),
+    [Output('supply-timestamp-diversen-page4', 'children'),
+     Output('stock-table-diversen', 'data')],
     [Input('url', 'pathname')],
     # prevent_initial_call=True
 )
@@ -1369,10 +1522,16 @@ def show_stock_table_diversen(pathname):
             # Convert DataFrame to dictionary and return data
             data = stock_df.to_dict('records')
             
-            return data
+            write_data_to_supply_sheet("DIVERSEN", stock_df[selected_columns])
+            
+            current_datetime = datetime.datetime.now()
+            formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            alert_msg = dbc.Alert(formatted_datetime, color="primary")
+            
+            return alert_msg, data
         except Exception as e:
             logging.error("Error fetching data:", e)  # Consider using logging for error messages
-            return []  # Return empty list or display an error message
+            return None, []  # Return empty list or display an error message
         finally:
             # Ensure session is closed even on exceptions
             db.close()
@@ -1380,7 +1539,8 @@ def show_stock_table_diversen(pathname):
     
     
 @app.callback(
-    [Output('barcode-status-diversen-page4', 'children'),
+    [Output('supply-timestamp-diversen-page4', 'children', allow_duplicate=True),
+     Output('barcode-status-diversen-page4', 'children'),
      Output('stock-table-diversen', 'data', allow_duplicate=True),
      Output('barcode-input-diversen-page4', 'value'),
      Output('diversen-count-input', 'value'),
@@ -1431,14 +1591,20 @@ def update_stock_table_diversen(n_clicks, barcode_input, item_count_input, barco
             data = stock_df.to_dict('records')
             
             db.close()
+            
+            write_data_to_supply_sheet("DIVERSEN", stock_df[selected_columns])  
+            
+            current_datetime = datetime.datetime.now()
+            formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            alert_msg = dbc.Alert(formatted_datetime, color="primary")
 
-            return alerts[0] if len(alerts) > 0 else None, data, None, None, None, None
+            return alert_msg, alerts[0] if len(alerts) > 0 else None, data, None, None, None, None
         except Exception as e:
             logging.error("Error updating stock table:", e)  # Consider using logging for error messages
             return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), [], None, None, None, None
     
     # If the update button is not clicked or if inputs are not provided, return no updates
-    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
 @app.callback(
     [Output('add-diversen-status', 'children'),
@@ -1473,6 +1639,8 @@ def add_diversen_to_database(n_clicks, description, item_count):
                 data = stock_df.to_dict('records')
                 
                 db.close()
+                
+                # write_data_to_supply_sheet("DIVERSEN", stock_df[selected_columns])
                 
                 return dbc.Alert("New item added to the database.", color="success"), data, None, None
             except Exception as e:
@@ -1530,8 +1698,15 @@ def detect_deleted_row_diversen_page4(current_data, previous_data):
                     # Commit changes to the database
                     db.commit()
                     
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
+                    stock_df = pd.read_sql(query, db.bind)
+
                     db.close()
-                   
+                    
+                    # write_data_to_supply_sheet("DIVERSEN", stock_df[selected_columns])
+                    
                     alert_msg = dbc.Alert(f"Barcode {deleted_id} deleted from database.", color="success")
                 except Exception as e:
                     alert_msg = dbc.Alert(f"Failed to update barcode {deleted_id} in database: {str(e)}", color="danger")
