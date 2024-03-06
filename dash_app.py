@@ -1,7 +1,8 @@
 #%% IMPORT PACKAGES
 import os
+import datetime
+import logging
 import shutil
-import json
 import dash
 import dash_bootstrap_components as dbc
 from dash.exceptions import PreventUpdate
@@ -9,25 +10,16 @@ from dash import html, dcc, dash_table, callback, Input, Output, State
 import pandas as pd
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle
 from reportlab.lib import colors
 
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+
+# USER MODULES
 from email_utils import send_email
 from gsheet_utils import write_data_to_sheet
 
-import datetime
-
-import pyodbc
-
-import traceback
-
-from dash import callback_context
-
-from sqlalchemy import create_engine, text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-
-import logging
 #%% START APP
 # Initialize Dash app
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
@@ -543,56 +535,58 @@ def scan_barcode_ijs_page1(_, barcode, rows):
     
     # Initialize the alert message
     alert_msg = None
+    
+    # Create a database session using SessionLocal
+    db = SessionLocal()
+    
+    # Define the select query
+    select_query = text("SELECT [ID], [Type], [Description], [ValueNet] FROM [dbo].[DATA] WHERE [ID] = :barcode AND [InStock] = 1")
+    
+    # Execute the select query using SQLAlchemy
+    result = db.execute(select_query, {"barcode": barcode}).fetchone()
+    
+    if result:
+        # The barcode exists in the database and the item is in stock, update the status
+        
+        # Define the update query
+        update_query = text(
+            "UPDATE [dbo].[DATA] SET [InStock] = 0 WHERE [ID] = :barcode"
+        )
+        
+        # Execute the update query using SQLAlchemy
+        db.execute(update_query, {"barcode": barcode})
+        db.commit()  # Commit the update
+        
+        # Create a new row for the product with actual data
+        new_row = {
+            'Barcode': result[0],
+            'Type': result[1],
+            'Omschrijving': result[2],
+            'Gewicht [kg]': result[3]
+        }
+        rows.append(new_row)
 
-    # Connect to the database
-    with pyodbc.connect(conn_str) as conn:
-        with conn.cursor() as cursor:
-            # Check if the barcode exists in the database and if it is in stock
-            cursor.execute("SELECT COUNT(*) FROM [dbo].[DATA] WHERE [ID] = ? AND [InStock] = 1", barcode)
-            
-            result = cursor.fetchone()
-            if result is not None:
-                count = result[0]
-            else:
-                # Handle the case when cursor.fetchone() returns None
-                count = 0  # or any other default value you want to assign
+        alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database and item was in stock. Now marked as out of stock.', color="success")
+    else:
+        # The barcode does not exist in the database or item is not in stock
+        
+        # Define the existence check query
+        exists_query = text(
+            "SELECT COUNT(*) FROM [dbo].[DATA] WHERE [ID] = :barcode"
+        )
+        
+        # Execute the existence check query using SQLAlchemy
+        exists = db.execute(exists_query, {"barcode": barcode}).fetchone()[0]
 
-            if count > 0:
-                # The barcode exists in the database and the item is in stock, update the status
-                cursor.execute("UPDATE [dbo].[DATA] SET [InStock] = 0 WHERE [ID] = ?", barcode)
-                conn.commit()  # Commit the update
-                
-                # Fetch actual product details from the database
-                cursor.execute("SELECT [ID], [Type], [Description], [ValueNet] FROM [dbo].[DATA] WHERE [ID] = ?", barcode)
-                product_details = cursor.fetchone()
-                if product_details:
-                    # Create a new row for the product with actual data
-                    new_row = {
-                        'Barcode': product_details[0],
-                        'Type': product_details[1],
-                        'Omschrijving': product_details[2],
-                        'Gewicht [kg]': product_details[3]
-                    }
-                    rows.append(new_row)
-
-                alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database and item was in stock. Now marked as out of stock.', color="success")
-            else:
-                # The barcode does not exist in the database or item is not in stock
-                # Check if the item exists at all (regardless of stock status)
-                cursor.execute("SELECT COUNT(*) FROM [dbo].[DATA] WHERE [ID] = ?", barcode)
-                exists = cursor.fetchone()
-                if exists is not None:
-                    count = exists[0]
-                else:
-                    # Handle the case when cursor.fetchone() returns None
-                    count = 0  # or any other default value you want to assign
-                    
-                if count > 0:
-                    # The item exists but is out of stock
-                    alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database but item is currently out of stock.', color="warning")
-                else:
-                    # The item does not exist
-                    alert_msg = dbc.Alert(f'Barcode {str(barcode)} not found in database.', color="danger")
+        if exists > 0:
+            # The item exists but is out of stock
+            alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database but item is currently out of stock.', color="warning")
+        else:
+            # The item does not exist
+            alert_msg = dbc.Alert(f'Barcode {str(barcode)} not found in database.', color="danger")
+    
+    # Close the database session
+    db.close()
     
     return alert_msg, rows, rows, None
 
@@ -634,10 +628,17 @@ def detect_deleted_row_ijs_page1(current_data, previous_data):
             if deleted_id:
                 # Connect to the database and update the InStock status
                 try:
-                    with pyodbc.connect(conn_str) as conn:
-                        with conn.cursor() as cursor:
-                            cursor.execute("UPDATE [dbo].[DATA] SET [InStock] = 1 WHERE [ID] = ?", deleted_id)
-                            conn.commit()
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    delete_query = text("UPDATE [dbo].[DATA] SET [InStock] = 1 WHERE [ID] = :deleted_id")
+                    db.execute(delete_query, {"deleted_id": deleted_id})
+                    
+                    # Commit changes to the database
+                    db.commit()
+                    
+                    db.close()
+                    
                     alert_msg = dbc.Alert(f"Barcode {deleted_id} updated in database; set as in stock.", color="success")
                 except Exception as e:
                     alert_msg = dbc.Alert(f"Failed to update barcode {deleted_id} in database: {str(e)}", color="danger")
@@ -666,56 +667,59 @@ def scan_barcode_taart_page1(_, barcode, rows):
     
     # Initialize the alert message
     alert_msg = None
+    
+    # Create a database session using SessionLocal
+    db = SessionLocal()
+    
+    # Define the select query
+    select_query = text("SELECT [ID], [Description] FROM [dbo].[TAART] WHERE [ID] = :barcode")
+    
+    # Execute the select query using SQLAlchemy
+    result = db.execute(select_query, {"barcode": barcode}).fetchone()
+    
+    if result:
+        # The barcode exists in the database and the item is in stock, update the status
+        
+        # Define the update query
+        update_query = text(
+            "UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] - 1 WHERE [ID] = :barcode"
+        )
+        
+        # Execute the update query using SQLAlchemy
+        db.execute(update_query, {"barcode": barcode})
+        db.commit()  # Commit the update
+        
+        # Create a new row for the product with actual data
+        new_row = {
+            'Barcode': result[0],
+            'Omschrijving': result[1],
+        }
+        rows.append(new_row)
 
-    # Connect to the database
-    with pyodbc.connect(conn_str) as conn:
-        with conn.cursor() as cursor:
-            # Check if the barcode exists in the database and if it is in stock
-            cursor.execute("SELECT COUNT(*) FROM [dbo].[TAART] WHERE [ID] = ?", barcode)
-            
-            result = cursor.fetchone()
-            if result is not None:
-                count = result[0]
-            else:
-                # Handle the case when cursor.fetchone() returns None
-                count = 0  # or any other default value you want to assign
+        alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database and item was in stock. Now marked as out of stock.', color="success")
+    else:
+        # The barcode does not exist in the database or item is not in stock
+        
+        # Define the existence check query
+        exists_query = text(
+            "SELECT COUNT(*) FROM [dbo].[TAART] WHERE [ID] = :barcode"
+        )
+        
+        # Execute the existence check query using SQLAlchemy
+        exists = db.execute(exists_query, {"barcode": barcode}).fetchone()[0]
 
-            if count > 0:
-                # The barcode exists in the database and the item is in stock, update the status
-                cursor.execute("UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] - 1 WHERE [ID] = ?", barcode)
-                conn.commit()  # Commit the update
-                
-                # Fetch actual product details from the database
-                cursor.execute("SELECT [ID], [Description] FROM [dbo].[TAART] WHERE [ID] = ?", barcode)
-                product_details = cursor.fetchone()
-                if product_details:
-                    # Create a new row for the product with actual data
-                    new_row = {
-                        'Barcode': product_details[0],
-                        'Omschrijving': product_details[1],
-                    }
-                    rows.append(new_row)
-
-                alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database and item was in stock.', color="success")
-            else:
-                # The barcode does not exist in the database or item is not in stock
-                # Check if the item exists at all (regardless of stock status)
-                cursor.execute("SELECT COUNT(*) FROM [dbo].[TAART] WHERE [ID] = ?", barcode)
-                exists = cursor.fetchone()
-                if exists is not None:
-                    count = exists[0]
-                else:
-                    # Handle the case when cursor.fetchone() returns None
-                    count = 0  # or any other default value you want to assign
-
-                if count > 0:
-                    # The item exists but is out of stock
-                    alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database but item is currently out of stock.', color="warning")
-                else:
-                    # The item does not exist
-                    alert_msg = dbc.Alert(f'Barcode {str(barcode)} not found in database.', color="danger")
+        if exists > 0:
+            # The item exists but is out of stock
+            alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database but item is currently out of stock.', color="warning")
+        else:
+            # The item does not exist
+            alert_msg = dbc.Alert(f'Barcode {str(barcode)} not found in database.', color="danger")
+    
+    # Close the database session
+    db.close()
     
     return alert_msg, rows, rows, None
+
 
 @app.callback(
     [Output('deleted-row-taart-page1', 'children'),
@@ -755,10 +759,17 @@ def detect_deleted_row_taart_page1(current_data, previous_data):
             if deleted_id:
                 # Connect to the database and update the InStock status
                 try:
-                    with pyodbc.connect(conn_str) as conn:
-                        with conn.cursor() as cursor:
-                            cursor.execute("UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] + 1 WHERE [ID] = ?", deleted_id)
-                            conn.commit()
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    delete_query = text("UPDATE [dbo].[TAART] SET [InStock] = 1 WHERE [ID] = :deleted_id")
+                    db.execute(delete_query, {"deleted_id": deleted_id})
+                    
+                    # Commit changes to the database
+                    db.commit()
+                    
+                    db.close()
+                    
                     alert_msg = dbc.Alert(f"Barcode {deleted_id} updated in database; set as in stock.", color="success")
                 except Exception as e:
                     alert_msg = dbc.Alert(f"Failed to update barcode {deleted_id} in database: {str(e)}", color="danger")
@@ -787,54 +798,56 @@ def scan_barcode_diversen_page1(_, barcode, rows):
     
     # Initialize the alert message
     alert_msg = None
+    
+    # Create a database session using SessionLocal
+    db = SessionLocal()
+    
+    # Define the select query
+    select_query = text("SELECT [ID], [Description] FROM [dbo].[DIVERSEN] WHERE [ID] = :barcode")
+    
+    # Execute the select query using SQLAlchemy
+    result = db.execute(select_query, {"barcode": barcode}).fetchone()
+    
+    if result:
+        # The barcode exists in the database and the item is in stock, update the status
+        
+        # Define the update query
+        update_query = text(
+            "UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] - 1 WHERE [ID] = :barcode"
+        )
+        
+        # Execute the update query using SQLAlchemy
+        db.execute(update_query, {"barcode": barcode})
+        db.commit()  # Commit the update
+        
+        # Create a new row for the product with actual data
+        new_row = {
+            'Barcode': result[0],
+            'Omschrijving': result[1],
+        }
+        rows.append(new_row)
 
-    # Connect to the database
-    with pyodbc.connect(conn_str) as conn:
-        with conn.cursor() as cursor:
-            # Check if the barcode exists in the database and if it is in stock
-            cursor.execute("SELECT COUNT(*) FROM [dbo].[DIVERSEN] WHERE [ID] = ?", barcode)
+        alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database and item was in stock. Now marked as out of stock.', color="success")
+    else:
+        # The barcode does not exist in the database or item is not in stock
+        
+        # Define the existence check query
+        exists_query = text(
+            "SELECT COUNT(*) FROM [dbo].[DIVERSEN] WHERE [ID] = :barcode"
+        )
+        
+        # Execute the existence check query using SQLAlchemy
+        exists = db.execute(exists_query, {"barcode": barcode}).fetchone()[0]
 
-            result = cursor.fetchone()
-            if result is not None:
-                count = result[0]
-            else:
-                # Handle the case when cursor.fetchone() returns None
-                count = 0  # or any other default value you want to assign
-                
-            if count > 0:
-                # The barcode exists in the database and the item is in stock, update the status
-                cursor.execute("UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] - 1 WHERE [ID] = ?", barcode)
-                conn.commit()  # Commit the update
-                
-                # Fetch actual product details from the database
-                cursor.execute("SELECT [ID], [Description] FROM [dbo].[DIVERSEN] WHERE [ID] = ?", barcode)
-                product_details = cursor.fetchone()
-                if product_details:
-                    # Create a new row for the product with actual data
-                    new_row = {
-                        'Barcode': product_details[0],
-                        'Omschrijving': product_details[1],
-                    }
-                    rows.append(new_row)
-
-                alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database and item was in stock.', color="success")
-            else:
-                # The barcode does not exist in the database or item is not in stock
-                # Check if the item exists at all (regardless of stock status)
-                cursor.execute("SELECT COUNT(*) FROM [dbo].[DIVERSEN] WHERE [ID] = ?", barcode)
-                exists = cursor.fetchone()
-                if exists is not None:
-                    count = exists[0]
-                else:
-                    # Handle the case when cursor.fetchone() returns None
-                    count = 0  # or any other default value you want to assign
-
-                if count > 0:
-                    # The item exists but is out of stock
-                    alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database but item is currently out of stock.', color="warning")
-                else:
-                    # The item does not exist
-                    alert_msg = dbc.Alert(f'Barcode {str(barcode)} not found in database.', color="danger")
+        if exists > 0:
+            # The item exists but is out of stock
+            alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database but item is currently out of stock.', color="warning")
+        else:
+            # The item does not exist
+            alert_msg = dbc.Alert(f'Barcode {str(barcode)} not found in database.', color="danger")
+    
+    # Close the database session
+    db.close()
     
     return alert_msg, rows, rows, None
 
@@ -876,10 +889,17 @@ def detect_deleted_row_diversen_page1(current_data, previous_data):
             if deleted_id:
                 # Connect to the database and update the InStock status
                 try:
-                    with pyodbc.connect(conn_str) as conn:
-                        with conn.cursor() as cursor:
-                            cursor.execute("UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] + 1 WHERE [ID] = ?", deleted_id)
-                            conn.commit()
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    delete_query = text("UPDATE [dbo].[DIVERSEN] SET [InStock] = 1 WHERE [ID] = :deleted_id")
+                    db.execute(delete_query, {"deleted_id": deleted_id})
+                    
+                    # Commit changes to the database
+                    db.commit()
+                    
+                    db.close()
+                    
                     alert_msg = dbc.Alert(f"Barcode {deleted_id} updated in database; set as in stock.", color="success")
                 except Exception as e:
                     alert_msg = dbc.Alert(f"Failed to update barcode {deleted_id} in database: {str(e)}", color="danger")
@@ -1056,30 +1076,6 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
 
 #%%% CALLBACKS PAGE 2 
 # Callback to populate the stock overview table on Page 2
-# @app.callback(
-#     Output('stock-table-ijs', 'data'),
-#     [Input('url', 'pathname')],
-#     # prevent_initial_call=True
-# )
-# def show_stock_table_ijs(pathname):
-#     # print(f"Updating stock table for path: {pathname}")  # Debug print
-#     if pathname == '/ijs':
-#         try:
-#             # Connect to the database and execute the query
-#             with pyodbc.connect(conn_str, timeout=10) as conn:  # Added timeout for the connection
-#                 query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type], [InStock] FROM [dbo].[DATA] WHERE [InStock] = 1"
-#                 stock_df = pd.read_sql(query, conn)
-#                 data = stock_df.to_dict('records')
-                
-#             # Convert the DataFrame to a format Dash DataTable can use
-#             return data
-#         except Exception as e:
-#             print("Error updating stock table:", e)
-#             traceback.print_exc()  # Helps to debug if there's an error
-#             return []  # Return an empty list if there's an error
-#     raise PreventUpdate  # Don't update the table if we're not on Page 2
-
-# Example callback function assuming a table named 'DATA'
 @app.callback(
     Output('stock-table-ijs', 'data'),
     [Input('url', 'pathname')],
@@ -1121,22 +1117,23 @@ def scan_barcode_ijs_page2(dummy1, dummy2, barcode_input, barcode_output):
     if barcode_input is None and barcode_output is None:
         raise PreventUpdate  # No barcode entered, do nothing
 
-    # Initialize the alert message
-    alerts = []
-
     try:
+        
+        # Initialize the alert message
+        alerts = []
+
         # Create a database session
         db = SessionLocal()
 
         # Update barcode status (if input is not None)
-        if barcode_input is not None:
+        if barcode_input:
             query = text("UPDATE [dbo].[DATA] SET [InStock] = 1 WHERE [ID] = :barcode").params(barcode=barcode_input)
             db.execute(query)
             alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and set to in stock.', color="success"))
             db.commit()
 
         # Update barcode status (if output is not None)
-        if barcode_output is not None:
+        if barcode_output:
             query = text("UPDATE [dbo].[DATA] SET [InStock] = 0 WHERE [ID] = :barcode").params(barcode=barcode_output)
             db.execute(query)
             alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and set out of stock.', color="success"))
@@ -1204,38 +1201,45 @@ def show_stock_table_taart(pathname):
 def update_stock_table_taart(n_clicks, barcode_input, item_count_input, barcode_output, item_count_output):
     # Check if the update button is clicked and inputs are provided
     if n_clicks > 0:
+        
         try:
+            
             alerts = []
             data = []
+            
+            # Create a database session using SessionLocal
+            db = SessionLocal()
 
             # Update input table
             if barcode_input is not None and item_count_input is not None:
-                with pyodbc.connect(conn_str, timeout=10) as conn:
-                    cursor = conn.cursor()
-                    update_query = f"UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] + {item_count_input} WHERE [ID] = {barcode_input}"
-                    cursor.execute(update_query)
-                    conn.commit()
-                alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
                 
+                update_query = text(f"UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] + {item_count_input} WHERE [ID] = {barcode_input}")
+                db.execute(update_query)
+                alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
+
             # Update output table
             if barcode_output is not None and item_count_output is not None:
-                with pyodbc.connect(conn_str, timeout=10) as conn:
-                    cursor = conn.cursor()
-                    update_query = f"UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] - {item_count_output} WHERE [ID] = {barcode_output}"
-                    cursor.execute(update_query)
-                    conn.commit()
-                alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and stock was adjusted.', color="success"))
+                
+                update_query = text(f"UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] - {item_count_output} WHERE [ID] = {barcode_output}")
+                db.execute(update_query)
+                alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
 
-            # Get updated data for the DataTable
-            with pyodbc.connect(conn_str, timeout=10) as conn:
-                query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[TAART]"
-                stock_df = pd.read_sql(query, conn)
-                data = stock_df.to_dict('records')
+            # Commit changes to the database
+            db.commit()
+            
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+            query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[TAART]"
+            stock_df = pd.read_sql(query, db.bind)
+
+            # Convert DataFrame to dictionary and return data
+            data = stock_df.to_dict('records')
+            
+            db.close()
 
             return alerts[0] if len(alerts) > 0 else None, data, None, None, None, None
         except Exception as e:
-            print("Error updating stock table:", e)
-            traceback.print_exc()
+            logging.error("Error updating stock table:", e)  # Consider using logging for error messages
             return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), [], None, None, None, None
     
     # If the update button is not clicked or if inputs are not provided, return no updates
@@ -1255,22 +1259,29 @@ def add_taart_to_database(n_clicks, description, item_count):
     if n_clicks:
         if description and item_count:
             try:
-                with pyodbc.connect(conn_str, timeout=10) as conn:
-                    cursor = conn.cursor()
-                    insert_query = f"INSERT INTO [dbo].[TAART] (Description, ItemCount) VALUES ('{description}', {item_count})"
-                    cursor.execute(insert_query)
-                    conn.commit()
-                    
-                    # Get updated data for the DataTable
-                    with pyodbc.connect(conn_str, timeout=10) as conn:
-                        query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[TAART]"
-                        stock_df = pd.read_sql(query, conn)
-                        data = stock_df.to_dict('records')
-                        
+                
+                # Create a database session using SessionLocal
+                db = SessionLocal()
+                
+                insert_query = text(f"INSERT INTO [dbo].[TAART] (Description, ItemCount) VALUES ('{description}', {item_count})")
+                db.execute(insert_query)
+                
+                # Commit changes to the database
+                db.commit()
+                
+                # Create a database session using SessionLocal
+                db = SessionLocal()
+                query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[TAART]"
+                stock_df = pd.read_sql(query, db.bind)
+
+                # Convert DataFrame to dictionary and return data
+                data = stock_df.to_dict('records')
+                
+                db.close()
+                
                 return dbc.Alert("New item added to the database.", color="success"), data, None, None
             except Exception as e:
-                print("Error adding item to database:", e)
-                traceback.print_exc()
+                logging.error("Error adding item to database:", e)
                 return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), dash.no_update, dash.no_update, dash.no_update
         else:
             return dbc.Alert("Please provide both description and item count.", color="warning"), dash.no_update, dash.no_update, dash.no_update
@@ -1315,10 +1326,17 @@ def detect_deleted_row_taart_page3(current_data, previous_data):
             if deleted_id:
                 # Connect to the database and update the InStock status
                 try:
-                    with pyodbc.connect(conn_str) as conn:
-                        with conn.cursor() as cursor:
-                            cursor.execute("DELETE FROM [dbo].[TAART] WHERE [ID] = ?", deleted_id)
-                            conn.commit()
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    delete_query = text("DELETE FROM [dbo].[TAART] WHERE [ID] = :deleted_id")
+                    db.execute(delete_query, {"deleted_id": deleted_id})
+                    
+                    # Commit changes to the database
+                    db.commit()
+                    
+                    db.close()
+                   
                     alert_msg = dbc.Alert(f"Barcode {deleted_id} deleted from database.", color="success")
                 except Exception as e:
                     alert_msg = dbc.Alert(f"Failed to update barcode {deleted_id} in database: {str(e)}", color="danger")
@@ -1378,38 +1396,45 @@ def show_stock_table_diversen(pathname):
 def update_stock_table_diversen(n_clicks, barcode_input, item_count_input, barcode_output, item_count_output):
     # Check if the update button is clicked and inputs are provided
     if n_clicks > 0:
+        
         try:
+            
             alerts = []
             data = []
+            
+            # Create a database session using SessionLocal
+            db = SessionLocal()
 
             # Update input table
             if barcode_input is not None and item_count_input is not None:
-                with pyodbc.connect(conn_str, timeout=10) as conn:
-                    cursor = conn.cursor()
-                    update_query = f"UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] + {item_count_input} WHERE [ID] = {barcode_input}"
-                    cursor.execute(update_query)
-                    conn.commit()
-                alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
                 
+                update_query = text(f"UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] + {item_count_input} WHERE [ID] = {barcode_input}")
+                db.execute(update_query)
+                alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
+
             # Update output table
             if barcode_output is not None and item_count_output is not None:
-                with pyodbc.connect(conn_str, timeout=10) as conn:
-                    cursor = conn.cursor()
-                    update_query = f"UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] - {item_count_output} WHERE [ID] = {barcode_output}"
-                    cursor.execute(update_query)
-                    conn.commit()
-                alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and stock was adjusted.', color="success"))
+                
+                update_query = text(f"UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] - {item_count_output} WHERE [ID] = {barcode_output}")
+                db.execute(update_query)
+                alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
 
-            # Get updated data for the DataTable
-            with pyodbc.connect(conn_str, timeout=10) as conn:
-                query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
-                stock_df = pd.read_sql(query, conn)
-                data = stock_df.to_dict('records')
+            # Commit changes to the database
+            db.commit()
+            
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+            query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
+            stock_df = pd.read_sql(query, db.bind)
+
+            # Convert DataFrame to dictionary and return data
+            data = stock_df.to_dict('records')
+            
+            db.close()
 
             return alerts[0] if len(alerts) > 0 else None, data, None, None, None, None
         except Exception as e:
-            print("Error updating stock table:", e)
-            traceback.print_exc()
+            logging.error("Error updating stock table:", e)  # Consider using logging for error messages
             return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), [], None, None, None, None
     
     # If the update button is not clicked or if inputs are not provided, return no updates
@@ -1429,25 +1454,34 @@ def add_diversen_to_database(n_clicks, description, item_count):
     if n_clicks:
         if description and item_count:
             try:
-                with pyodbc.connect(conn_str, timeout=10) as conn:
-                    cursor = conn.cursor()
-                    insert_query = f"INSERT INTO [dbo].[DIVERSEN] (Description, ItemCount) VALUES ('{description}', {item_count})"
-                    cursor.execute(insert_query)
-                    conn.commit()
-                    
-                    # Get updated data for the DataTable
-                    with pyodbc.connect(conn_str, timeout=10) as conn:
-                        query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
-                        stock_df = pd.read_sql(query, conn)
-                        data = stock_df.to_dict('records')
-                        
+                
+                # Create a database session using SessionLocal
+                db = SessionLocal()
+                
+                insert_query = text(f"INSERT INTO [dbo].[DIVERSEN] (Description, ItemCount) VALUES ('{description}', {item_count})")
+                db.execute(insert_query)
+                
+                # Commit changes to the database
+                db.commit()
+                
+                # Create a database session using SessionLocal
+                db = SessionLocal()
+                query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
+                stock_df = pd.read_sql(query, db.bind)
+
+                # Convert DataFrame to dictionary and return data
+                data = stock_df.to_dict('records')
+                
+                db.close()
+                
                 return dbc.Alert("New item added to the database.", color="success"), data, None, None
             except Exception as e:
-                print("Error adding item to database:", e)
-                traceback.print_exc()
+                logging.error("Error adding item to database:", e)
                 return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), dash.no_update, dash.no_update, dash.no_update
         else:
             return dbc.Alert("Please provide both description and item count.", color="warning"), dash.no_update, dash.no_update, dash.no_update
+    
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
 @app.callback(
     [Output('deleted-row-diversen-page4', 'children'),
@@ -1487,10 +1521,17 @@ def detect_deleted_row_diversen_page4(current_data, previous_data):
             if deleted_id:
                 # Connect to the database and update the InStock status
                 try:
-                    with pyodbc.connect(conn_str) as conn:
-                        with conn.cursor() as cursor:
-                            cursor.execute("DELETE FROM [dbo].[DIVERSEN] WHERE [ID] = ?", deleted_id)
-                            conn.commit()
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    delete_query = text("DELETE FROM [dbo].[DIVERSEN] WHERE [ID] = :deleted_id")
+                    db.execute(delete_query, {"deleted_id": deleted_id})
+                    
+                    # Commit changes to the database
+                    db.commit()
+                    
+                    db.close()
+                   
                     alert_msg = dbc.Alert(f"Barcode {deleted_id} deleted from database.", color="success")
                 except Exception as e:
                     alert_msg = dbc.Alert(f"Failed to update barcode {deleted_id} in database: {str(e)}", color="danger")
@@ -1501,8 +1542,6 @@ def detect_deleted_row_diversen_page4(current_data, previous_data):
         alert_msg = dbc.Alert("No rows have been deleted.", color="warning")
 
     return alert_msg, current_data
-    
-    return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
 if __name__ == '__main__':
     app.run_server(debug=True)
