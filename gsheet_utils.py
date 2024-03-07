@@ -48,8 +48,8 @@ def write_dataframe_to_sheet(dataframe, spreadsheet_id, range_name, credentials)
             body={"values": values}
         ).execute()
 
-        print("Data written successfully!")
-        print(result)
+        print(f"Voorraad google sheet: {spreadsheet_id} geupdated. Updated range: {result['updatedRange']}")
+        print()
     except HttpError as err:
         print(err)
 
@@ -151,10 +151,10 @@ def write_data_to_appsheet(data):
             body={"values": value_data}
         )
         
-        response = result.execute()
+        # response = result.execute()
 
-        print("Data written successfully!")
-        print(response)
+        print(f"Pakbon {data[1]} {data[2]} succesvol toegevoegd aan google sheet: {SAMPLE_SPREADSHEET_ID}!")
+        # print(data)
     except HttpError as err:
         print(err)
 
