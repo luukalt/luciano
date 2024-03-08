@@ -3,11 +3,13 @@ import os
 import datetime
 import logging
 import shutil
+import pandas as pd
+
 import dash
 import dash_bootstrap_components as dbc
 from dash.exceptions import PreventUpdate
 from dash import html, dcc, dash_table, callback, Input, Output, State
-import pandas as pd
+
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle
