@@ -355,8 +355,6 @@ page_3_layout = dbc.Container([
                     html.Br(),
                     dbc.Input(id='new-taart-description', type='text', placeholder='Description'),
                     html.Br(),
-                    # dbc.Input(id='new-taart-itemcount', type='number', placeholder='Item Count'),
-                    # html.Br(),
                     dbc.Button('Voeg taart toe', id='add-taart-button', color="success", className="mt-2", n_clicks=0),
                     html.Div(id='add-taart-status')
                 ])
@@ -433,9 +431,9 @@ page_4_layout = dbc.Container([
             dbc.Card([
                 dbc.CardHeader("NIEUW ITEM"),
                 dbc.CardBody([
-                    dbc.Input(id='new-diversen-description', type='text', placeholder='Description'),
+                    dbc.Input(id='new-diversen-barcode', type='text', placeholder='Barcode'),
                     html.Br(),
-                    dbc.Input(id='new-diversen-itemcount', type='number', placeholder='Item Count'),
+                    dbc.Input(id='new-diversen-description', type='text', placeholder='Description'),
                     html.Br(),
                     dbc.Button('Voeg item toe', id='add-diversen-button', color="success", className="mt-2", n_clicks=0),
                     html.Div(id='add-diversen-status')
@@ -703,7 +701,7 @@ def scan_barcode_taart_page1(_, barcode, rows):
     db = SessionLocal()
     
     # Define the select query
-    select_query = text("SELECT [ID], [Description] FROM [dbo].[TAART] WHERE [ID] = :barcode")
+    select_query = text("SELECT [Barcode], [Description] FROM [dbo].[TAART] WHERE [Barcode] = :barcode")
     
     # Execute the select query using SQLAlchemy
     result = db.execute(select_query, {"barcode": barcode}).fetchone()
@@ -713,7 +711,7 @@ def scan_barcode_taart_page1(_, barcode, rows):
         
         # Define the update query
         update_query = text(
-            "UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] - 1 WHERE [ID] = :barcode"
+            "UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] - 1 WHERE [Barcode] = :barcode"
         )
         
         # Execute the update query using SQLAlchemy
@@ -733,7 +731,7 @@ def scan_barcode_taart_page1(_, barcode, rows):
         
         # Define the existence check query
         exists_query = text(
-            "SELECT COUNT(*) FROM [dbo].[TAART] WHERE [ID] = :barcode"
+            "SELECT COUNT(*) FROM [dbo].[TAART] WHERE [Barcode] = :barcode"
         )
         
         # Execute the existence check query using SQLAlchemy
@@ -793,7 +791,7 @@ def detect_deleted_row_taart_page1(current_data, previous_data):
                     
                     # Create a database session using SessionLocal
                     db = SessionLocal()
-                    delete_query = text("UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] + 1 WHERE [ID] = :deleted_id")
+                    delete_query = text("UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] + 1 WHERE [Barcode] = :deleted_id")
                     db.execute(delete_query, {"deleted_id": deleted_id})
                     
                     # Commit changes to the database
@@ -834,7 +832,7 @@ def scan_barcode_diversen_page1(_, barcode, rows):
     db = SessionLocal()
     
     # Define the select query
-    select_query = text("SELECT [ID], [Description] FROM [dbo].[DIVERSEN] WHERE [ID] = :barcode")
+    select_query = text("SELECT [Barcode], [Description] FROM [dbo].[DIVERSEN] WHERE [Barcode] = :barcode")
     
     # Execute the select query using SQLAlchemy
     result = db.execute(select_query, {"barcode": barcode}).fetchone()
@@ -844,7 +842,7 @@ def scan_barcode_diversen_page1(_, barcode, rows):
         
         # Define the update query
         update_query = text(
-            "UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] - 1 WHERE [ID] = :barcode"
+            "UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] - 1 WHERE [Barcode] = :barcode"
         )
         
         # Execute the update query using SQLAlchemy
@@ -864,7 +862,7 @@ def scan_barcode_diversen_page1(_, barcode, rows):
         
         # Define the existence check query
         exists_query = text(
-            "SELECT COUNT(*) FROM [dbo].[DIVERSEN] WHERE [ID] = :barcode"
+            "SELECT COUNT(*) FROM [dbo].[DIVERSEN] WHERE [Barcode] = :barcode"
         )
         
         # Execute the existence check query using SQLAlchemy
@@ -923,7 +921,7 @@ def detect_deleted_row_diversen_page1(current_data, previous_data):
                     
                     # Create a database session using SessionLocal
                     db = SessionLocal()
-                    delete_query = text("UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] + 1 WHERE [ID] = :deleted_id")
+                    delete_query = text("UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] + 1 WHERE [Barcode] = :deleted_id")
                     db.execute(delete_query, {"deleted_id": deleted_id})
                     
                     # Commit changes to the database
@@ -1354,20 +1352,30 @@ def update_stock_table_taart(n_clicks, barcode_input, item_count_input, barcode_
             
             # Create a database session using SessionLocal
             db = SessionLocal()
-
+            
             # Update input table
             if barcode_input is not None and item_count_input is not None:
                 
-                update_query = text(f"UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] + {item_count_input} WHERE [Barcode] = {barcode_input}")
-                db.execute(update_query)
-                alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
+                update_query = text("UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] + :item_count WHERE [Barcode] = :barcode")
+                result = db.execute(update_query, {"item_count": item_count_input, "barcode": barcode_input})
+                
+                if result.rowcount == 0:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_input} not found in database.', color="danger"))
+                else:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
+                    
+                # alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
 
             # Update output table
             if barcode_output is not None and item_count_output is not None:
                 
-                update_query = text(f"UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] - {item_count_output} WHERE [Barcode] = {barcode_output}")
-                db.execute(update_query)
-                alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
+                update_query = text("UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] - :item_count WHERE [Barcode] = :barcode")
+                result = db.execute(update_query, {"item_count": item_count_output, "barcode": barcode_output})
+                
+                if result.rowcount == 0:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_output} not found in database.', color="danger"))
+                else:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and stock was adjusted.', color="success"))
 
             # Commit changes to the database
             db.commit()
@@ -1391,7 +1399,7 @@ def update_stock_table_taart(n_clicks, barcode_input, item_count_input, barcode_
             return alert_msg, alerts[0] if len(alerts) > 0 else None, data, None, None, None, None
         except Exception as e:
             logging.error("Error updating stock table:", e)  # Consider using logging for error messages
-            return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), [], None, None, None, None
+            return dash.no_update, dbc.Alert(f"An error occurred: {str(e)}", color="danger"), [], None, None, None, None
     
     # If the update button is not clicked or if inputs are not provided, return no updates
     return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
@@ -1399,8 +1407,8 @@ def update_stock_table_taart(n_clicks, barcode_input, item_count_input, barcode_
 @app.callback(
     [Output('add-taart-status', 'children'),
      Output('stock-table-taart', 'data', allow_duplicate=True),
-     Output('new-taart-description', 'value'),
-     Output('new-taart-itemcount', 'value')],
+     Output('new-taart-barcode', 'value'),
+     Output('new-taart-description', 'value')],
     [Input('add-taart-button', 'n_clicks')],
     [State('new-taart-barcode', 'value'),
      State('new-taart-description', 'value')],
@@ -1411,13 +1419,13 @@ def add_taart_to_database(n_clicks, barcode, description):
     item_count = 0
     
     if n_clicks:
-        if description and item_count:
+        if barcode and description:
             try:
                 
                 # Create a database session using SessionLocal
                 db = SessionLocal()
                 
-                insert_query = text(f"INSERT INTO [dbo].[TAART] (Barcode, Description, ItemCount) VALUES ('{barcode}','{description}', {item_count})")
+                insert_query = text(f"INSERT INTO [dbo].[TAART] (Barcode, Description, ItemCount) VALUES ('{barcode}','{description}',{item_count})")
                 db.execute(insert_query)
                 
                 # Commit changes to the database
@@ -1485,7 +1493,7 @@ def detect_deleted_row_taart_page3(current_data, previous_data):
                     
                     # Create a database session using SessionLocal
                     db = SessionLocal()
-                    delete_query = text("DELETE FROM [dbo].[TAART] WHERE [ID] = :deleted_id")
+                    delete_query = text("DELETE FROM [dbo].[TAART] WHERE [Barcode] = :deleted_id")
                     db.execute(delete_query, {"deleted_id": deleted_id})
                     
                     # Commit changes to the database
@@ -1525,7 +1533,7 @@ def show_stock_table_diversen(pathname):
             db = SessionLocal()
 
             # Execute the query using SQLAlchemy
-            query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
+            query = "SELECT [Barcode], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
             stock_df = pd.read_sql(query, db.bind)
 
             # Convert DataFrame to dictionary and return data
@@ -1573,27 +1581,37 @@ def update_stock_table_diversen(n_clicks, barcode_input, item_count_input, barco
             
             # Create a database session using SessionLocal
             db = SessionLocal()
-
+            
             # Update input table
             if barcode_input is not None and item_count_input is not None:
                 
-                update_query = text(f"UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] + {item_count_input} WHERE [ID] = {barcode_input}")
-                db.execute(update_query)
-                alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
+                update_query = text("UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] + :item_count WHERE [Barcode] = :barcode")
+                result = db.execute(update_query, {"item_count": item_count_input, "barcode": barcode_input})
+                
+                if result.rowcount == 0:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_input} not found in database.', color="danger"))
+                else:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
+                    
+                # alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
 
             # Update output table
             if barcode_output is not None and item_count_output is not None:
                 
-                update_query = text(f"UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] - {item_count_output} WHERE [ID] = {barcode_output}")
-                db.execute(update_query)
-                alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
+                update_query = text("UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] - :item_count WHERE [Barcode] = :barcode")
+                result = db.execute(update_query, {"item_count": item_count_output, "barcode": barcode_output})
+                
+                if result.rowcount == 0:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_output} not found in database.', color="danger"))
+                else:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and stock was adjusted.', color="success"))
 
             # Commit changes to the database
             db.commit()
             
             # Create a database session using SessionLocal
             db = SessionLocal()
-            query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
+            query = "SELECT [Barcode], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
             stock_df = pd.read_sql(query, db.bind)
 
             # Convert DataFrame to dictionary and return data
@@ -1618,22 +1636,25 @@ def update_stock_table_diversen(n_clicks, barcode_input, item_count_input, barco
 @app.callback(
     [Output('add-diversen-status', 'children'),
      Output('stock-table-diversen', 'data', allow_duplicate=True),
-     Output('new-diversen-description', 'value'),
-     Output('new-diversen-itemcount', 'value')],
+     Output('new-diversen-barcode', 'value'),
+     Output('new-diversen-description', 'value')],
     [Input('add-diversen-button', 'n_clicks')],
-    [State('new-diversen-description', 'value'),
-     State('new-diversen-itemcount', 'value')],
+    [State('new-diversen-barcode', 'value'),
+     State('new-diversen-description', 'value')],
     prevent_initial_call=True
 )
-def add_diversen_to_database(n_clicks, description, item_count):
+def add_diversen_to_database(n_clicks, barcode, description):
+    
+    item_count = 0
+    
     if n_clicks:
-        if description and item_count:
+        if barcode and description:
             try:
                 
                 # Create a database session using SessionLocal
                 db = SessionLocal()
                 
-                insert_query = text(f"INSERT INTO [dbo].[DIVERSEN] (Description, ItemCount) VALUES ('{description}', {item_count})")
+                insert_query = text(f"INSERT INTO [dbo].[DIVERSEN] (Barcode, Description, ItemCount) VALUES ('{barcode}','{description}',{item_count})")
                 db.execute(insert_query)
                 
                 # Commit changes to the database
@@ -1641,7 +1662,7 @@ def add_diversen_to_database(n_clicks, description, item_count):
                 
                 # Create a database session using SessionLocal
                 db = SessionLocal()
-                query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
+                query = "SELECT [Barcode], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
                 stock_df = pd.read_sql(query, db.bind)
 
                 # Convert DataFrame to dictionary and return data
@@ -1693,7 +1714,7 @@ def detect_deleted_row_diversen_page4(current_data, previous_data):
         # If there are deleted rows, process each one
         for deleted_row in deleted_rows_dicts:
             # Extract the ID of the deleted row
-            deleted_id = deleted_row.get('ID', None)
+            deleted_id = deleted_row.get('Barcode', None)
             # print(deleted_id)
             if deleted_id:
                 # Connect to the database and update the InStock status
@@ -1701,7 +1722,7 @@ def detect_deleted_row_diversen_page4(current_data, previous_data):
                     
                     # Create a database session using SessionLocal
                     db = SessionLocal()
-                    delete_query = text("DELETE FROM [dbo].[DIVERSEN] WHERE [ID] = :deleted_id")
+                    delete_query = text("DELETE FROM [dbo].[DIVERSEN] WHERE [Barcode] = :deleted_id")
                     db.execute(delete_query, {"deleted_id": deleted_id})
                     
                     # Commit changes to the database
@@ -1709,7 +1730,7 @@ def detect_deleted_row_diversen_page4(current_data, previous_data):
                     
                     # Create a database session using SessionLocal
                     db = SessionLocal()
-                    query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
+                    query = "SELECT [Barcode], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
                     stock_df = pd.read_sql(query, db.bind)
 
                     db.close()
