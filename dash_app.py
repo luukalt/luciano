@@ -20,7 +20,7 @@ from sqlalchemy.orm import sessionmaker
 
 # USER MODULES
 from email_utils import send_email
-from gsheet_utils import write_data_to_appsheet, write_data_to_supply_sheet
+from google_utils import write_data_to_appsheet, write_data_to_supply_sheet, upload_pdf_to_drive 
 
 #%% START APP
 # Initialize Dash app
@@ -116,7 +116,7 @@ page_1_layout = dbc.Container([
                 dbc.CardBody([
                     dbc.Row([
                         dbc.Col([
-                            dbc.Button('Genereer Pakbon en stuur Email', id='generate-pdf-button', n_clicks=0, color="success"),
+                            dbc.Button('Genereer pakbon en stuur email', id='generate-pdf-button', n_clicks=0, color="success"),
                         ], width=4),  # This column takes 9 out of 12 columns, leaving 3 for the next column
                         dbc.Col([
                             dbc.Button('Laad laatst opgeslagen pakbon in', id='load_last_saved_products-button', n_clicks=0, color="primary"),
@@ -327,7 +327,7 @@ page_3_layout = dbc.Container([
             dbc.Card([
                 dbc.CardHeader("SCAN TAART NAAR VOORRAAD"),
                 dbc.CardBody([
-                    dbc.Input(id='barcode-input-taart-page3', type='text', placeholder='Vul Taart ID in', debounce=True),
+                    dbc.Input(id='barcode-input-taart-page3', type='text', placeholder='Vul Taart Barcode in', debounce=True),
                     html.Br(),
                     dbc.Input(id='taart-count-input', type='number', placeholder='Vul aantal in', min=0, debounce=True),
                     # html.Div(id='barcode-input-status-taart-page3', className="mt-2"),  # This will display the status after checking the barcode
@@ -339,7 +339,7 @@ page_3_layout = dbc.Container([
             dbc.Card([
                 dbc.CardHeader("SCAN TAART UIT VOORRAAD"),
                 dbc.CardBody([
-                    dbc.Input(id='barcode-output-taart-page3', type='text', placeholder='Vul Taart ID in', debounce=True),
+                    dbc.Input(id='barcode-output-taart-page3', type='text', placeholder='Vul Taart Barcode in', debounce=True),
                     html.Br(),
                     dbc.Input(id='taart-count-output', type='number', placeholder='Vul aantal in', min=0, debounce=True),
                     # html.Div(id='barcode-output-status-taart-page3', className="mt-2"),  # This will display the status after checking the barcode
@@ -351,10 +351,12 @@ page_3_layout = dbc.Container([
             dbc.Card([
                 dbc.CardHeader("NIEUWE SMAAK"),
                 dbc.CardBody([
+                    dbc.Input(id='new-taart-barcode', type='text', placeholder='Barcode'),
+                    html.Br(),
                     dbc.Input(id='new-taart-description', type='text', placeholder='Description'),
                     html.Br(),
-                    dbc.Input(id='new-taart-itemcount', type='number', placeholder='Item Count'),
-                    html.Br(),
+                    # dbc.Input(id='new-taart-itemcount', type='number', placeholder='Item Count'),
+                    # html.Br(),
                     dbc.Button('Voeg taart toe', id='add-taart-button', color="success", className="mt-2", n_clicks=0),
                     html.Div(id='add-taart-status')
                 ])
@@ -407,7 +409,7 @@ page_4_layout = dbc.Container([
             dbc.Card([
                 dbc.CardHeader("SCAN ITEM NAAR VOORRAAD"),
                 dbc.CardBody([
-                    dbc.Input(id='barcode-input-diversen-page4', type='text', placeholder='Vul Item ID in', debounce=True),
+                    dbc.Input(id='barcode-input-diversen-page4', type='text', placeholder='Vul Item Barcode in', debounce=True),
                     html.Br(),
                     dbc.Input(id='diversen-count-input', type='number', placeholder='Vul aantal in', min=0, debounce=True),
                     # html.Div(id='barcode-input-status-taart-page3', className="mt-2"),  # This will display the status after checking the barcode
@@ -419,7 +421,7 @@ page_4_layout = dbc.Container([
             dbc.Card([
                 dbc.CardHeader("SCAN ITEM UIT VOORRAAD"),
                 dbc.CardBody([
-                    dbc.Input(id='barcode-output-diversen-page4', type='text', placeholder='Vul ITEM ID in', debounce=True),
+                    dbc.Input(id='barcode-output-diversen-page4', type='text', placeholder='Vul ITEM Barcode in', debounce=True),
                     html.Br(),
                     dbc.Input(id='diversen-count-output', type='number', placeholder='Vul aantal in', min=0, debounce=True),
                     # html.Div(id='barcode-output-status-taart-page3', className="mt-2"),  # This will display the status after checking the barcode
@@ -1129,11 +1131,11 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
                 # If the file already exists in the destination folder, remove it
                 if os.path.exists(destination_path):
                     os.remove(destination_path)
-                    print(f"Existing file removed: {destination_path}")
+                    print(f"Bestaande pakbon verwijderd: {destination_path}")
 
                 # Move the file to the destination folder
                 shutil.move(pdf_filename, pdf_folder)
-                print(f"File moved successfully to {pdf_folder}")
+                print(f"Pakbon {store}_{formatted_date2} geplaatst in {pdf_folder}")
 
             except Exception as e:
                 print(f"Error moving file: {e}")
@@ -1155,12 +1157,14 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
                     f'{formatted_date1}',   # Order Date
                     "FALSE",      # Status
                     f"Orders_Pdfs/{store}_{formatted_date2}.pdf",  # File
-                    None,  # Signature
-                    None,   # Timestamp
-                    None  # Note
+                    "",  # Signature
+                    "",   # Timestamp
+                    ""  # Note
                 ]
                 
                 write_data_to_appsheet(new_entry)
+                
+                upload_pdf_to_drive(destination_path)
 
                 # Return success message and empty the table
                 return dbc.Alert("PDF generated and emailed successfully!", color="success"), [], [], []
@@ -1303,7 +1307,7 @@ def show_stock_table_taart(pathname):
             db = SessionLocal()
 
             # Execute the query using SQLAlchemy
-            query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[TAART]"
+            query = "SELECT [Barcode], [Description], [ItemCount] FROM [dbo].[TAART]"
             stock_df = pd.read_sql(query, db.bind)
 
             # Convert DataFrame to dictionary and return data
@@ -1354,14 +1358,14 @@ def update_stock_table_taart(n_clicks, barcode_input, item_count_input, barcode_
             # Update input table
             if barcode_input is not None and item_count_input is not None:
                 
-                update_query = text(f"UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] + {item_count_input} WHERE [ID] = {barcode_input}")
+                update_query = text(f"UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] + {item_count_input} WHERE [Barcode] = {barcode_input}")
                 db.execute(update_query)
                 alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
 
             # Update output table
             if barcode_output is not None and item_count_output is not None:
                 
-                update_query = text(f"UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] - {item_count_output} WHERE [ID] = {barcode_output}")
+                update_query = text(f"UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] - {item_count_output} WHERE [Barcode] = {barcode_output}")
                 db.execute(update_query)
                 alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
 
@@ -1370,7 +1374,7 @@ def update_stock_table_taart(n_clicks, barcode_input, item_count_input, barcode_
             
             # Create a database session using SessionLocal
             db = SessionLocal()
-            query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[TAART]"
+            query = "SELECT [Barcode], [Description], [ItemCount] FROM [dbo].[TAART]"
             stock_df = pd.read_sql(query, db.bind)
 
             # Convert DataFrame to dictionary and return data
@@ -1398,11 +1402,14 @@ def update_stock_table_taart(n_clicks, barcode_input, item_count_input, barcode_
      Output('new-taart-description', 'value'),
      Output('new-taart-itemcount', 'value')],
     [Input('add-taart-button', 'n_clicks')],
-    [State('new-taart-description', 'value'),
-     State('new-taart-itemcount', 'value')],
+    [State('new-taart-barcode', 'value'),
+     State('new-taart-description', 'value')],
     prevent_initial_call=True
 )
-def add_taart_to_database(n_clicks, description, item_count):
+def add_taart_to_database(n_clicks, barcode, description):
+    
+    item_count = 0
+    
     if n_clicks:
         if description and item_count:
             try:
@@ -1410,7 +1417,7 @@ def add_taart_to_database(n_clicks, description, item_count):
                 # Create a database session using SessionLocal
                 db = SessionLocal()
                 
-                insert_query = text(f"INSERT INTO [dbo].[TAART] (Description, ItemCount) VALUES ('{description}', {item_count})")
+                insert_query = text(f"INSERT INTO [dbo].[TAART] (Barcode, Description, ItemCount) VALUES ('{barcode}','{description}', {item_count})")
                 db.execute(insert_query)
                 
                 # Commit changes to the database
@@ -1418,7 +1425,7 @@ def add_taart_to_database(n_clicks, description, item_count):
                 
                 # Create a database session using SessionLocal
                 db = SessionLocal()
-                query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[TAART]"
+                query = "SELECT [Barcode], [Description], [ItemCount] FROM [dbo].[TAART]"
                 stock_df = pd.read_sql(query, db.bind)
 
                 # Convert DataFrame to dictionary and return data
@@ -1470,7 +1477,7 @@ def detect_deleted_row_taart_page3(current_data, previous_data):
         # If there are deleted rows, process each one
         for deleted_row in deleted_rows_dicts:
             # Extract the ID of the deleted row
-            deleted_id = deleted_row.get('ID', None)
+            deleted_id = deleted_row.get('Barcode', None)
             # print(deleted_id)
             if deleted_id:
                 # Connect to the database and update the InStock status
@@ -1486,7 +1493,7 @@ def detect_deleted_row_taart_page3(current_data, previous_data):
                     
                     db.close()
                     
-                    query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[TAART]"
+                    query = "SELECT [Barcode], [Description], [ItemCount] FROM [dbo].[TAART]"
                     stock_df = pd.read_sql(query, db.bind)
                     
                     # write_data_to_supply_sheet("TAART", stock_df[selected_columns])
