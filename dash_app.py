@@ -78,7 +78,7 @@ df_taart = pd.DataFrame(columns=['Barcode', 'Omschrijving'])
 df_diversen = pd.DataFrame(columns=['Barcode', 'Omschrijving'])
 
 # Define columns for google sheet supply (TAART + DIVERSEN)
-selected_columns = ['Description', 'ItemCount']  # Adjust column names as needed
+selected_columns = ['Omschrijving', 'Aantal']  # Adjust column names as needed
 
 #%% Define a navigation bar
 navbar = dbc.NavbarSimple(
@@ -266,6 +266,8 @@ page_2_layout = dbc.Container([
                     dbc.CardBody([
                         dash_table.DataTable(
                             id='stock-table-ijs',
+                            # columns=[{'name': i, 'id': i} for i in df_products_page2.columns],
+                            # data=df_products_page2.to_dict('records'),
                             # editable=False,
                             # row_deletable=True,
                             # filter_action='native',  # Enable filtering
@@ -353,7 +355,7 @@ page_3_layout = dbc.Container([
                 dbc.CardBody([
                     dbc.Input(id='new-taart-barcode', type='text', placeholder='Barcode'),
                     html.Br(),
-                    dbc.Input(id='new-taart-description', type='text', placeholder='Description'),
+                    dbc.Input(id='new-taart-description', type='text', placeholder='Omschrijving'),
                     html.Br(),
                     dbc.Button('Voeg taart toe', id='add-taart-button', color="success", className="mt-2", n_clicks=0),
                     html.Div(id='add-taart-status')
@@ -419,7 +421,7 @@ page_4_layout = dbc.Container([
             dbc.Card([
                 dbc.CardHeader("SCAN ITEM UIT VOORRAAD"),
                 dbc.CardBody([
-                    dbc.Input(id='barcode-output-diversen-page4', type='text', placeholder='Vul ITEM Barcode in', debounce=True),
+                    dbc.Input(id='barcode-output-diversen-page4', type='text', placeholder='Vul Item Barcode in', debounce=True),
                     html.Br(),
                     dbc.Input(id='diversen-count-output', type='number', placeholder='Vul aantal in', min=0, debounce=True),
                     # html.Div(id='barcode-output-status-taart-page3', className="mt-2"),  # This will display the status after checking the barcode
@@ -433,7 +435,7 @@ page_4_layout = dbc.Container([
                 dbc.CardBody([
                     dbc.Input(id='new-diversen-barcode', type='text', placeholder='Barcode'),
                     html.Br(),
-                    dbc.Input(id='new-diversen-description', type='text', placeholder='Description'),
+                    dbc.Input(id='new-diversen-description', type='text', placeholder='Omschrijving'),
                     html.Br(),
                     dbc.Button('Voeg item toe', id='add-diversen-button', color="success", className="mt-2", n_clicks=0),
                     html.Div(id='add-diversen-status')
@@ -569,7 +571,7 @@ def scan_barcode_ijs_page1(_, barcode, rows):
     db = SessionLocal()
     
     # Define the select query
-    select_query = text("SELECT [ID], [Type], [Description], [ValueNet] FROM [dbo].[DATA] WHERE [ID] = :barcode AND [InStock] = 1")
+    select_query = text("SELECT [DATA01], [DATA03], [DATA02], [ValueNet] FROM [dbo].[DATA] WHERE [DATA01] = :barcode AND [DATA06] = 1")
     
     # Execute the select query using SQLAlchemy
     result = db.execute(select_query, {"barcode": barcode}).fetchone()
@@ -579,7 +581,7 @@ def scan_barcode_ijs_page1(_, barcode, rows):
         
         # Define the update query
         update_query = text(
-            "UPDATE [dbo].[DATA] SET [InStock] = 0 WHERE [ID] = :barcode"
+            "UPDATE [dbo].[DATA] SET [DATA06] = 0 WHERE [DATA01] = :barcode"
         )
         
         # Execute the update query using SQLAlchemy
@@ -601,7 +603,7 @@ def scan_barcode_ijs_page1(_, barcode, rows):
         
         # Define the existence check query
         exists_query = text(
-            "SELECT COUNT(*) FROM [dbo].[DATA] WHERE [ID] = :barcode"
+            "SELECT COUNT(*) FROM [dbo].[DATA] WHERE [DATA01] = :barcode"
         )
         
         # Execute the existence check query using SQLAlchemy
@@ -660,7 +662,7 @@ def detect_deleted_row_ijs_page1(current_data, previous_data):
                     
                     # Create a database session using SessionLocal
                     db = SessionLocal()
-                    delete_query = text("UPDATE [dbo].[DATA] SET [InStock] = 1 WHERE [ID] = :deleted_id")
+                    delete_query = text("UPDATE [dbo].[DATA] SET [DATA06] = 1 WHERE [DATA01] = :deleted_id")
                     db.execute(delete_query, {"deleted_id": deleted_id})
                     
                     # Commit changes to the database
@@ -701,7 +703,7 @@ def scan_barcode_taart_page1(_, barcode, rows):
     db = SessionLocal()
     
     # Define the select query
-    select_query = text("SELECT [Barcode], [Description] FROM [dbo].[TAART] WHERE [Barcode] = :barcode")
+    select_query = text("SELECT [Barcode], [Omschrijving] FROM [dbo].[TAART] WHERE [Barcode] = :barcode")
     
     # Execute the select query using SQLAlchemy
     result = db.execute(select_query, {"barcode": barcode}).fetchone()
@@ -711,7 +713,7 @@ def scan_barcode_taart_page1(_, barcode, rows):
         
         # Define the update query
         update_query = text(
-            "UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] - 1 WHERE [Barcode] = :barcode"
+            "UPDATE [dbo].[TAART] SET [Aantal] = [Aantal] - 1 WHERE [Barcode] = :barcode"
         )
         
         # Execute the update query using SQLAlchemy
@@ -791,7 +793,7 @@ def detect_deleted_row_taart_page1(current_data, previous_data):
                     
                     # Create a database session using SessionLocal
                     db = SessionLocal()
-                    delete_query = text("UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] + 1 WHERE [Barcode] = :deleted_id")
+                    delete_query = text("UPDATE [dbo].[TAART] SET [Aantal] = [Aantal] + 1 WHERE [Barcode] = :deleted_id")
                     db.execute(delete_query, {"deleted_id": deleted_id})
                     
                     # Commit changes to the database
@@ -832,7 +834,7 @@ def scan_barcode_diversen_page1(_, barcode, rows):
     db = SessionLocal()
     
     # Define the select query
-    select_query = text("SELECT [Barcode], [Description] FROM [dbo].[DIVERSEN] WHERE [Barcode] = :barcode")
+    select_query = text("SELECT [Barcode], [Omschrijving] FROM [dbo].[DIVERSEN] WHERE [Barcode] = :barcode")
     
     # Execute the select query using SQLAlchemy
     result = db.execute(select_query, {"barcode": barcode}).fetchone()
@@ -842,7 +844,7 @@ def scan_barcode_diversen_page1(_, barcode, rows):
         
         # Define the update query
         update_query = text(
-            "UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] - 1 WHERE [Barcode] = :barcode"
+            "UPDATE [dbo].[DIVERSEN] SET [Aantal] = [Aantal] - 1 WHERE [Barcode] = :barcode"
         )
         
         # Execute the update query using SQLAlchemy
@@ -921,7 +923,7 @@ def detect_deleted_row_diversen_page1(current_data, previous_data):
                     
                     # Create a database session using SessionLocal
                     db = SessionLocal()
-                    delete_query = text("UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] + 1 WHERE [Barcode] = :deleted_id")
+                    delete_query = text("UPDATE [dbo].[DIVERSEN] SET [Aantal] = [Aantal] + 1 WHERE [Barcode] = :deleted_id")
                     db.execute(delete_query, {"deleted_id": deleted_id})
                     
                     # Commit changes to the database
@@ -959,6 +961,9 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
     if n_clicks is None or n_clicks == 0:
         raise PreventUpdate
     
+    if not any([products, taarten, diversen]):
+        return dbc.Alert("Please add products before generating a PDF.", color="warning"), [], [], []
+    
     if n_clicks is not None and n_clicks > 0:
         
         store_label = next((item['label'] for item in stores if item['value'] == store), None)
@@ -980,7 +985,7 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
         pdf_folder = 'Orders_Pdfs'
         
         # Define PDF filename based on the store name for uniqueness
-        pdf_filename = f'{store}_{formatted_date1}.pdf'
+        pdf_filename = f'{store}_{formatted_date2}.pdf'
         
         # Set up the PDF document
         doc = SimpleDocTemplate(pdf_filename, pagesize=A4, rightMargin=72, leftMargin=72,
@@ -1014,12 +1019,11 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
             table_data = table[0]
             table_name = table[1]
             
-            # styles['Title'].fontSize = 12
-            title = Paragraph(table_name, styles['Heading2'])
-            elements.append(title)
-            
-            
             if table_data:
+                
+                title = Paragraph(table_name, styles['Heading2'])
+                elements.append(title)
+                
                 if table_name == "IJS":
                     # Setting up the table for product listing
                     data = [['Barcode', 'Type', 'Omschrijving', 'Gewicht [kg]']] + [[p['Barcode'], p['Type'], p['Omschrijving'], p['Gewicht [kg]']] for p in table_data]
@@ -1047,64 +1051,27 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
         type_weight = {}
         
         # Calculate totals for each type
-        for product in products:
-            product_type = product['Type']
-            if product_type not in type_count:
-                type_count[product_type] = 1
-                type_weight[product_type] = product['Gewicht [kg]']
-            else:
-                type_count[product_type] += 1
-                type_weight[product_type] += product['Gewicht [kg]']
-        
-        # Add totals table to the PDF
-        type_totals_data = [['Type', 'Aantal', 'Totaal Gewicht [kg]']]
-        for product_type, count in type_count.items():
-            type_totals_data.append([product_type, count, type_weight[product_type]])
-        
-        # Adding a paragraph to describe the totals table
-        totals_description = Paragraph("IJS TOTAAL", styles['Heading2'])
-        elements.append(totals_description)
-        
-        # Setting up the table for totals
-        totals_table = Table(type_totals_data, colWidths=[100, 60, 100])  # Specify column widths as needed
-        totals_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.white),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-            ('ALIGNMENT', (0, 0), (-1, -1), 'LEFT'),  # Align text to the left
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('BOX', (0, 0), (-1, -1), 2, colors.black),
-        ]))
-        totals_table.hAlign = 'LEFT'  # Options are 'LEFT', 'CENTER', 'RIGHT'
-        elements.append(totals_table)
-        
-        for table in [(taarten, "TAARTEN"), (diversen, "DIVERSEN")]:
-            
-            items = table[0]
-            name = table[1]
-            
-            # Initialize dictionaries to store totals
-            barcode_count = {}
-            
-            # Calculate totals for each type
-            for item in items:
-                item_barcode = item['Omschrijving']
-                if item_barcode not in barcode_count:
-                    barcode_count[item_barcode] = 1
+        if products:
+            for product in products:
+                product_type = product['Type']
+                if product_type not in type_count:
+                    type_count[product_type] = 1
+                    type_weight[product_type] = product['Gewicht [kg]']
                 else:
-                    barcode_count[item_barcode] += 1
+                    type_count[product_type] += 1
+                    type_weight[product_type] += product['Gewicht [kg]']
             
             # Add totals table to the PDF
-            items_totals_data = [['Omschrijving', 'Aantal']]
-            for item_barcode, count in barcode_count.items():
-                items_totals_data.append([item_barcode, count])
+            type_totals_data = [['Type', 'Aantal', 'Totaal Gewicht [kg]']]
+            for product_type, count in type_count.items():
+                type_totals_data.append([product_type, count, type_weight[product_type]])
             
             # Adding a paragraph to describe the totals table
-            totals_description = Paragraph(f"{name} TOTAAL", styles['Heading2'])
+            totals_description = Paragraph("IJS TOTAAL", styles['Heading2'])
             elements.append(totals_description)
             
             # Setting up the table for totals
-            totals_table = Table(items_totals_data, colWidths=[100, 60, 100])  # Specify column widths as needed
+            totals_table = Table(type_totals_data, colWidths=[100, 60, 100])  # Specify column widths as needed
             totals_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.white),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
@@ -1115,6 +1082,46 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
             ]))
             totals_table.hAlign = 'LEFT'  # Options are 'LEFT', 'CENTER', 'RIGHT'
             elements.append(totals_table)
+        
+        for table in [(taarten, "TAARTEN"), (diversen, "DIVERSEN")]:
+            
+            items = table[0]
+            name = table[1]
+            
+            if items:
+                
+                # Initialize dictionaries to store totals
+                barcode_count = {}
+                
+                # Calculate totals for each type
+                for item in items:
+                    item_barcode = item['Omschrijving']
+                    if item_barcode not in barcode_count:
+                        barcode_count[item_barcode] = 1
+                    else:
+                        barcode_count[item_barcode] += 1
+                
+                # Add totals table to the PDF
+                items_totals_data = [['Omschrijving', 'Aantal']]
+                for item_barcode, count in barcode_count.items():
+                    items_totals_data.append([item_barcode, count])
+                
+                # Adding a paragraph to describe the totals table
+                totals_description = Paragraph(f"{name} TOTAAL", styles['Heading2'])
+                elements.append(totals_description)
+                
+                # Setting up the table for totals
+                totals_table = Table(items_totals_data, colWidths=[100, 60, 100])  # Specify column widths as needed
+                totals_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.white),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                    ('ALIGNMENT', (0, 0), (-1, -1), 'LEFT'),  # Align text to the left
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                    ('BOX', (0, 0), (-1, -1), 2, colors.black),
+                ]))
+                totals_table.hAlign = 'LEFT'  # Options are 'LEFT', 'CENTER', 'RIGHT'
+                elements.append(totals_table)
         
         # Build the PDF
         doc.build(elements)
@@ -1174,7 +1181,6 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
             alert_msg = "Please select a store and add products before generating a PDF."
             if store:
                 alert_msg = "Please add products before generating a PDF."
-                return dbc.Alert(alert_msg, color="warning"), [], [], []
             elif products:
                 alert_msg = "Please select a store before generating a PDF."
                 return dbc.Alert(alert_msg, color="warning")
@@ -1192,13 +1198,16 @@ def show_stock_table_ijs(pathname):
         try:
             # Create a database session using SessionLocal
             db = SessionLocal()
-
+            
+            # df_products_page2 = pd.DataFrame(columns=['Barcode', 'Omschrijving', 'Gewicht [kg]', 'Type', 'THT', 'Medewerker'])
+            
             # Execute the query using SQLAlchemy
-            query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type] FROM [dbo].[DATA] WHERE [InStock] = 1"
+            # query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type] FROM [dbo].[DATA] WHERE [InStock] = 1"
+            query = "SELECT [DATA01] as Barcode, [DATA02] as Omschrijving, [ValueNet] as Gewicht, [DATA03] as Type, [DATA04] as THT, [DATA05] as Medewerker FROM [dbo].[DATA] WHERE [DATA06] = 1"
             stock_df = pd.read_sql(query, db.bind)
             
             # Group by Description and calculate the count
-            count_df = stock_df.groupby('Description').size().reset_index(name='ItemCount')
+            count_df = stock_df.groupby('Omschrijving').size().reset_index(name='Aantal')
 
             # Convert DataFrame to dictionary and return data
             stock_data = stock_df.to_dict('records')
@@ -1215,7 +1224,7 @@ def show_stock_table_ijs(pathname):
         
         except Exception as e:
             logging.error("Error fetching data:", e)  # Consider using logging for error messages
-            return None, []  # Return empty list or display an error message
+            return None, [], []  # Return empty list or display an error message
         finally:
             # Ensure session is closed even on exceptions
             db.close()
@@ -1249,24 +1258,26 @@ def scan_barcode_ijs_page2(dummy1, dummy2, barcode_input, barcode_output):
 
         # Update barcode status (if input is not None)
         if barcode_input:
-            query = text("UPDATE [dbo].[DATA] SET [InStock] = 1 WHERE [ID] = :barcode").params(barcode=barcode_input)
+            query = text("UPDATE [dbo].[DATA] SET [DATA06] = 1 WHERE [DATA01] = :barcode").params(barcode=barcode_input)
             db.execute(query)
             alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and set to in stock.', color="success"))
             db.commit()
 
         # Update barcode status (if output is not None)
         if barcode_output:
-            query = text("UPDATE [dbo].[DATA] SET [InStock] = 0 WHERE [ID] = :barcode").params(barcode=barcode_output)
+            query = text("UPDATE [dbo].[DATA] SET [DATA06] = 0 WHERE [DATA01] = :barcode").params(barcode=barcode_output)
             db.execute(query)
             alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and set out of stock.', color="success"))
             db.commit()
 
         # Get updated data for the DataTable
-        query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type] FROM [dbo].[DATA] WHERE [InStock] = 1"
+        # query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type] FROM [dbo].[DATA] WHERE [DATA06] = 1"
+        # query = "SELECT [DATA01], [DATA02], [ValueNet], [DATA03], [DATA04], [DATA05] FROM [dbo].[DATA] WHERE [DATA06] = 1"
+        query = "SELECT [DATA01] as Barcode, [DATA02] as Omschrijving, [ValueNet] as Gewicht, [DATA03] as Type, [DATA04] as THT, [DATA05] as Medewerker FROM [dbo].[DATA] WHERE [DATA06] = 1"
         stock_df = pd.read_sql(query, db.bind)
         
         # Group by Description and calculate the count
-        count_df = stock_df.groupby('Description').size().reset_index(name='ItemCount')
+        count_df = stock_df.groupby('Omschrijving').size().reset_index(name='Aantal')
         
         stock_data = stock_df.to_dict('records')
         
@@ -1305,7 +1316,7 @@ def show_stock_table_taart(pathname):
             db = SessionLocal()
 
             # Execute the query using SQLAlchemy
-            query = "SELECT [Barcode], [Description], [ItemCount] FROM [dbo].[TAART]"
+            query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[TAART]"
             stock_df = pd.read_sql(query, db.bind)
 
             # Convert DataFrame to dictionary and return data
@@ -1356,7 +1367,7 @@ def update_stock_table_taart(n_clicks, barcode_input, item_count_input, barcode_
             # Update input table
             if barcode_input is not None and item_count_input is not None:
                 
-                update_query = text("UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] + :item_count WHERE [Barcode] = :barcode")
+                update_query = text("UPDATE [dbo].[TAART] SET [Aantal] = [Aantal] + :item_count WHERE [Barcode] = :barcode")
                 result = db.execute(update_query, {"item_count": item_count_input, "barcode": barcode_input})
                 
                 if result.rowcount == 0:
@@ -1369,7 +1380,7 @@ def update_stock_table_taart(n_clicks, barcode_input, item_count_input, barcode_
             # Update output table
             if barcode_output is not None and item_count_output is not None:
                 
-                update_query = text("UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] - :item_count WHERE [Barcode] = :barcode")
+                update_query = text("UPDATE [dbo].[TAART] SET [Aantal] = [Aantal] - :item_count WHERE [Barcode] = :barcode")
                 result = db.execute(update_query, {"item_count": item_count_output, "barcode": barcode_output})
                 
                 if result.rowcount == 0:
@@ -1382,7 +1393,7 @@ def update_stock_table_taart(n_clicks, barcode_input, item_count_input, barcode_
             
             # Create a database session using SessionLocal
             db = SessionLocal()
-            query = "SELECT [Barcode], [Description], [ItemCount] FROM [dbo].[TAART]"
+            query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[TAART]"
             stock_df = pd.read_sql(query, db.bind)
 
             # Convert DataFrame to dictionary and return data
@@ -1425,7 +1436,7 @@ def add_taart_to_database(n_clicks, barcode, description):
                 # Create a database session using SessionLocal
                 db = SessionLocal()
                 
-                insert_query = text(f"INSERT INTO [dbo].[TAART] (Barcode, Description, ItemCount) VALUES ('{barcode}','{description}',{item_count})")
+                insert_query = text(f"INSERT INTO [dbo].[TAART] (Barcode, Omschrijving, Aantal) VALUES ('{barcode}','{description}',{item_count})")
                 db.execute(insert_query)
                 
                 # Commit changes to the database
@@ -1433,7 +1444,7 @@ def add_taart_to_database(n_clicks, barcode, description):
                 
                 # Create a database session using SessionLocal
                 db = SessionLocal()
-                query = "SELECT [Barcode], [Description], [ItemCount] FROM [dbo].[TAART]"
+                query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[TAART]"
                 stock_df = pd.read_sql(query, db.bind)
 
                 # Convert DataFrame to dictionary and return data
@@ -1501,7 +1512,7 @@ def detect_deleted_row_taart_page3(current_data, previous_data):
                     
                     db.close()
                     
-                    query = "SELECT [Barcode], [Description], [ItemCount] FROM [dbo].[TAART]"
+                    query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[TAART]"
                     stock_df = pd.read_sql(query, db.bind)
                     
                     # write_data_to_supply_sheet("TAART", stock_df[selected_columns])
@@ -1533,7 +1544,7 @@ def show_stock_table_diversen(pathname):
             db = SessionLocal()
 
             # Execute the query using SQLAlchemy
-            query = "SELECT [Barcode], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
+            query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[DIVERSEN]"
             stock_df = pd.read_sql(query, db.bind)
 
             # Convert DataFrame to dictionary and return data
@@ -1585,7 +1596,7 @@ def update_stock_table_diversen(n_clicks, barcode_input, item_count_input, barco
             # Update input table
             if barcode_input is not None and item_count_input is not None:
                 
-                update_query = text("UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] + :item_count WHERE [Barcode] = :barcode")
+                update_query = text("UPDATE [dbo].[DIVERSEN] SET [Aantal] = [Aantal] + :item_count WHERE [Barcode] = :barcode")
                 result = db.execute(update_query, {"item_count": item_count_input, "barcode": barcode_input})
                 
                 if result.rowcount == 0:
@@ -1598,7 +1609,7 @@ def update_stock_table_diversen(n_clicks, barcode_input, item_count_input, barco
             # Update output table
             if barcode_output is not None and item_count_output is not None:
                 
-                update_query = text("UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] - :item_count WHERE [Barcode] = :barcode")
+                update_query = text("UPDATE [dbo].[DIVERSEN] SET [Aantal] = [Aantal] - :item_count WHERE [Barcode] = :barcode")
                 result = db.execute(update_query, {"item_count": item_count_output, "barcode": barcode_output})
                 
                 if result.rowcount == 0:
@@ -1611,7 +1622,7 @@ def update_stock_table_diversen(n_clicks, barcode_input, item_count_input, barco
             
             # Create a database session using SessionLocal
             db = SessionLocal()
-            query = "SELECT [Barcode], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
+            query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[DIVERSEN]"
             stock_df = pd.read_sql(query, db.bind)
 
             # Convert DataFrame to dictionary and return data
@@ -1654,7 +1665,7 @@ def add_diversen_to_database(n_clicks, barcode, description):
                 # Create a database session using SessionLocal
                 db = SessionLocal()
                 
-                insert_query = text(f"INSERT INTO [dbo].[DIVERSEN] (Barcode, Description, ItemCount) VALUES ('{barcode}','{description}',{item_count})")
+                insert_query = text(f"INSERT INTO [dbo].[DIVERSEN] (Barcode, Omschrijving, Aantal) VALUES ('{barcode}','{description}',{item_count})")
                 db.execute(insert_query)
                 
                 # Commit changes to the database
@@ -1662,7 +1673,7 @@ def add_diversen_to_database(n_clicks, barcode, description):
                 
                 # Create a database session using SessionLocal
                 db = SessionLocal()
-                query = "SELECT [Barcode], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
+                query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[DIVERSEN]"
                 stock_df = pd.read_sql(query, db.bind)
 
                 # Convert DataFrame to dictionary and return data
@@ -1730,7 +1741,7 @@ def detect_deleted_row_diversen_page4(current_data, previous_data):
                     
                     # Create a database session using SessionLocal
                     db = SessionLocal()
-                    query = "SELECT [Barcode], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
+                    query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[DIVERSEN]"
                     stock_df = pd.read_sql(query, db.bind)
 
                     db.close()

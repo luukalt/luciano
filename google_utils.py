@@ -1,5 +1,7 @@
 from __future__ import print_function
 import os.path
+import datetime
+
 # import requests
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -7,9 +9,6 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
-
-
-
 
 def authenticate():
     
@@ -61,8 +60,10 @@ def write_data_to_supply_sheet(sheet_name, data):
             valueInputOption="USER_ENTERED",
             body={"values": values}
         ).execute()
-
-        print(f"Voorraad geupdated (google_sheet_id: {SPREADSHEET_ID} , updated range: {result['updatedRange']})")
+        
+        current_datetime = datetime.datetime.now()
+        formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+        print(f"{formatted_datetime}: Voorraad geupdated (google_sheet_id: {SPREADSHEET_ID} , updated range: {result['updatedRange']})")
     except HttpError as err:
         print(err)
 
