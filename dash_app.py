@@ -1,30 +1,26 @@
 #%% IMPORT PACKAGES
 import os
+import datetime
+import logging
 import shutil
-import json
+import pandas as pd
+
 import dash
 import dash_bootstrap_components as dbc
 from dash.exceptions import PreventUpdate
 from dash import html, dcc, dash_table, callback, Input, Output, State
-import pandas as pd
+
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle
 from reportlab.lib import colors
 
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+
+# USER MODULES
 from email_utils import send_email
-from gsheet_utils import write_data_to_sheet
-
-import datetime
-
-import pyodbc
-
-import traceback
-
-# import random
-# import string
-
-from dash import callback_context
+from google_utils import write_data_to_appsheet, write_data_to_supply_sheet, upload_pdf_to_drive 
 
 #%% START APP
 # Initialize Dash app
@@ -40,10 +36,19 @@ password = 'assw2024'  # Replace with your SQL Server password
 # Create a connection string
 conn_str = f'DRIVER={{SQL Server}};SERVER={server_name};DATABASE={database_name};UID={username};PWD={password}'
 
+conn_str2 = f'mssql+pyodbc://{username}:{password}@{server_name}/{database_name}?driver=ODBC+Driver+17+for+SQL+Server'
+
+# Define Database Engine (replace conn_str with your actual connection string)
+engine = create_engine(conn_str2)
+
+# Create a Session Maker
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 #%% DEFINE STORES
 # Dummy data for stores
 stores = [
     {'label': 'Bitterkoud Den Haag', 'value': 'BKDH'},
+    {'label': 'Luciano Alphen', 'value': 'LA'},
     {'label': 'Luciano Delft Buitenhof', 'value': 'LDB'},
     {'label': 'Luciano Delft Centrum', 'value': 'LDC'},
     {'label': 'Luciano Den Haag', 'value': 'LDH'},
@@ -52,7 +57,6 @@ stores = [
     {'label': 'Luciano Leiden', 'value': 'LL'},
     {'label': 'Luciano Maassluis', 'value': 'LM'},
     {'label': 'Luciano Overveen', 'value': 'LO'},
-    {'label': 'Luciano Rijswijk', 'value': 'LR'},
     {'label': 'Luciano Waddinxveen', 'value': 'LWV'},
     {'label': 'Luciano Wassenaar', 'value': 'LWN'},
     {'label': 'Luciano Wassenaar HQ', 'value': 'LWHQ'},
@@ -72,6 +76,9 @@ for i, store in enumerate(stores, 1):
 df_products = pd.DataFrame(columns=['Barcode', 'Type', 'Omschrijving', 'Gewicht [kg]'])
 df_taart = pd.DataFrame(columns=['Barcode', 'Omschrijving'])
 df_diversen = pd.DataFrame(columns=['Barcode', 'Omschrijving'])
+
+# Define columns for google sheet supply (TAART + DIVERSEN)
+selected_columns = ['Omschrijving', 'Aantal']  # Adjust column names as needed
 
 #%% Define a navigation bar
 navbar = dbc.NavbarSimple(
@@ -109,7 +116,7 @@ page_1_layout = dbc.Container([
                 dbc.CardBody([
                     dbc.Row([
                         dbc.Col([
-                            dbc.Button('Genereer Pakbon en stuur Email', id='generate-pdf-button', n_clicks=0, color="success"),
+                            dbc.Button('Genereer pakbon en stuur email', id='generate-pdf-button', n_clicks=0, color="success"),
                         ], width=4),  # This column takes 9 out of 12 columns, leaving 3 for the next column
                         dbc.Col([
                             dbc.Button('Laad laatst opgeslagen pakbon in', id='load_last_saved_products-button', n_clicks=0, color="primary"),
@@ -259,6 +266,8 @@ page_2_layout = dbc.Container([
                     dbc.CardBody([
                         dash_table.DataTable(
                             id='stock-table-ijs',
+                            # columns=[{'name': i, 'id': i} for i in df_products_page2.columns],
+                            # data=df_products_page2.to_dict('records'),
                             # editable=False,
                             # row_deletable=True,
                             # filter_action='native',  # Enable filtering
@@ -274,6 +283,28 @@ page_2_layout = dbc.Container([
                     ])
                 ]),
         ], width=6),
+        dbc.Col([
+            dbc.Card([
+                    dbc.CardHeader("VOORRAAD PER STUK"),
+                    dbc.CardBody([
+                        html.Div(id='supply-timestamp-ijs-page2', className="mt-2"),
+                        dash_table.DataTable(
+                            id='stock-count-table-ijs',
+                            # editable=False,
+                            # row_deletable=True,
+                            # filter_action='native',  # Enable filtering
+                            # sort_action='native',  # Enable sorting
+                            style_table={'overflowX': 'auto'},
+                            # page_action='none',
+                            style_cell={
+                                'minWidth': '100px', 'width': '150px', 'maxWidth': '180px',
+                                'overflow': 'hidden',
+                                'textOverflow': 'ellipsis',
+                            }
+                        )
+                    ])
+                ]),
+        ], width=3),
     ], className="mt-3"),
 ], fluid=True)
 
@@ -298,7 +329,7 @@ page_3_layout = dbc.Container([
             dbc.Card([
                 dbc.CardHeader("SCAN TAART NAAR VOORRAAD"),
                 dbc.CardBody([
-                    dbc.Input(id='barcode-input-taart-page3', type='text', placeholder='Vul Taart ID in', debounce=True),
+                    dbc.Input(id='barcode-input-taart-page3', type='text', placeholder='Vul Taart Barcode in', debounce=True),
                     html.Br(),
                     dbc.Input(id='taart-count-input', type='number', placeholder='Vul aantal in', min=0, debounce=True),
                     # html.Div(id='barcode-input-status-taart-page3', className="mt-2"),  # This will display the status after checking the barcode
@@ -310,7 +341,7 @@ page_3_layout = dbc.Container([
             dbc.Card([
                 dbc.CardHeader("SCAN TAART UIT VOORRAAD"),
                 dbc.CardBody([
-                    dbc.Input(id='barcode-output-taart-page3', type='text', placeholder='Vul Taart ID in', debounce=True),
+                    dbc.Input(id='barcode-output-taart-page3', type='text', placeholder='Vul Taart Barcode in', debounce=True),
                     html.Br(),
                     dbc.Input(id='taart-count-output', type='number', placeholder='Vul aantal in', min=0, debounce=True),
                     # html.Div(id='barcode-output-status-taart-page3', className="mt-2"),  # This will display the status after checking the barcode
@@ -322,9 +353,9 @@ page_3_layout = dbc.Container([
             dbc.Card([
                 dbc.CardHeader("NIEUWE SMAAK"),
                 dbc.CardBody([
-                    dbc.Input(id='new-taart-description', type='text', placeholder='Description'),
+                    dbc.Input(id='new-taart-barcode', type='text', placeholder='Barcode'),
                     html.Br(),
-                    dbc.Input(id='new-taart-itemcount', type='number', placeholder='Item Count'),
+                    dbc.Input(id='new-taart-description', type='text', placeholder='Omschrijving'),
                     html.Br(),
                     dbc.Button('Voeg taart toe', id='add-taart-button', color="success", className="mt-2", n_clicks=0),
                     html.Div(id='add-taart-status')
@@ -335,6 +366,7 @@ page_3_layout = dbc.Container([
             dbc.Card([
                     dbc.CardHeader("VOORRAAD"),
                     dbc.CardBody([
+                        html.Div(id='supply-timestamp-taart-page3', className="mt-2"),
                         html.Div(id='deleted-row-taart-page3', className="mt-2"),  # This will display the status after checking the barcode
                         dash_table.DataTable(
                             id='stock-table-taart',
@@ -377,7 +409,7 @@ page_4_layout = dbc.Container([
             dbc.Card([
                 dbc.CardHeader("SCAN ITEM NAAR VOORRAAD"),
                 dbc.CardBody([
-                    dbc.Input(id='barcode-input-diversen-page4', type='text', placeholder='Vul Item ID in', debounce=True),
+                    dbc.Input(id='barcode-input-diversen-page4', type='text', placeholder='Vul Item Barcode in', debounce=True),
                     html.Br(),
                     dbc.Input(id='diversen-count-input', type='number', placeholder='Vul aantal in', min=0, debounce=True),
                     # html.Div(id='barcode-input-status-taart-page3', className="mt-2"),  # This will display the status after checking the barcode
@@ -389,7 +421,7 @@ page_4_layout = dbc.Container([
             dbc.Card([
                 dbc.CardHeader("SCAN ITEM UIT VOORRAAD"),
                 dbc.CardBody([
-                    dbc.Input(id='barcode-output-diversen-page4', type='text', placeholder='Vul ITEM ID in', debounce=True),
+                    dbc.Input(id='barcode-output-diversen-page4', type='text', placeholder='Vul Item Barcode in', debounce=True),
                     html.Br(),
                     dbc.Input(id='diversen-count-output', type='number', placeholder='Vul aantal in', min=0, debounce=True),
                     # html.Div(id='barcode-output-status-taart-page3', className="mt-2"),  # This will display the status after checking the barcode
@@ -401,9 +433,9 @@ page_4_layout = dbc.Container([
             dbc.Card([
                 dbc.CardHeader("NIEUW ITEM"),
                 dbc.CardBody([
-                    dbc.Input(id='new-diversen-description', type='text', placeholder='Description'),
+                    dbc.Input(id='new-diversen-barcode', type='text', placeholder='Barcode'),
                     html.Br(),
-                    dbc.Input(id='new-diversen-itemcount', type='number', placeholder='Item Count'),
+                    dbc.Input(id='new-diversen-description', type='text', placeholder='Omschrijving'),
                     html.Br(),
                     dbc.Button('Voeg item toe', id='add-diversen-button', color="success", className="mt-2", n_clicks=0),
                     html.Div(id='add-diversen-status')
@@ -414,6 +446,7 @@ page_4_layout = dbc.Container([
             dbc.Card([
                     dbc.CardHeader("VOORRAAD"),
                     dbc.CardBody([
+                        html.Div(id='supply-timestamp-diversen-page4', className="mt-2"),
                         html.Div(id='deleted-row-diversen-page4', className="mt-2"),  # This will display the status after checking the barcode
                         dash_table.DataTable(
                             id='stock-table-diversen',
@@ -533,56 +566,58 @@ def scan_barcode_ijs_page1(_, barcode, rows):
     
     # Initialize the alert message
     alert_msg = None
+    
+    # Create a database session using SessionLocal
+    db = SessionLocal()
+    
+    # Define the select query
+    select_query = text("SELECT [DATA01], [DATA03], [DATA02], [ValueNet] FROM [dbo].[DATA] WHERE [DATA01] = :barcode AND [DATA06] = 1")
+    
+    # Execute the select query using SQLAlchemy
+    result = db.execute(select_query, {"barcode": barcode}).fetchone()
+    
+    if result:
+        # The barcode exists in the database and the item is in stock, update the status
+        
+        # Define the update query
+        update_query = text(
+            "UPDATE [dbo].[DATA] SET [DATA06] = 0 WHERE [DATA01] = :barcode"
+        )
+        
+        # Execute the update query using SQLAlchemy
+        db.execute(update_query, {"barcode": barcode})
+        db.commit()  # Commit the update
+        
+        # Create a new row for the product with actual data
+        new_row = {
+            'Barcode': result[0],
+            'Type': result[1],
+            'Omschrijving': result[2],
+            'Gewicht [kg]': result[3]
+        }
+        rows.append(new_row)
 
-    # Connect to the database
-    with pyodbc.connect(conn_str) as conn:
-        with conn.cursor() as cursor:
-            # Check if the barcode exists in the database and if it is in stock
-            cursor.execute("SELECT COUNT(*) FROM [dbo].[DATA] WHERE [ID] = ? AND [InStock] = 1", barcode)
-            
-            result = cursor.fetchone()
-            if result is not None:
-                count = result[0]
-            else:
-                # Handle the case when cursor.fetchone() returns None
-                count = 0  # or any other default value you want to assign
+        alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database and item was in stock. Now marked as out of stock.', color="success")
+    else:
+        # The barcode does not exist in the database or item is not in stock
+        
+        # Define the existence check query
+        exists_query = text(
+            "SELECT COUNT(*) FROM [dbo].[DATA] WHERE [DATA01] = :barcode"
+        )
+        
+        # Execute the existence check query using SQLAlchemy
+        exists = db.execute(exists_query, {"barcode": barcode}).fetchone()[0]
 
-            if count > 0:
-                # The barcode exists in the database and the item is in stock, update the status
-                cursor.execute("UPDATE [dbo].[DATA] SET [InStock] = 0 WHERE [ID] = ?", barcode)
-                conn.commit()  # Commit the update
-                
-                # Fetch actual product details from the database
-                cursor.execute("SELECT [ID], [Type], [Description], [ValueNet] FROM [dbo].[DATA] WHERE [ID] = ?", barcode)
-                product_details = cursor.fetchone()
-                if product_details:
-                    # Create a new row for the product with actual data
-                    new_row = {
-                        'Barcode': product_details[0],
-                        'Type': product_details[1],
-                        'Omschrijving': product_details[2],
-                        'Gewicht [kg]': product_details[3]
-                    }
-                    rows.append(new_row)
-
-                alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database and item was in stock. Now marked as out of stock.', color="success")
-            else:
-                # The barcode does not exist in the database or item is not in stock
-                # Check if the item exists at all (regardless of stock status)
-                cursor.execute("SELECT COUNT(*) FROM [dbo].[DATA] WHERE [ID] = ?", barcode)
-                exists = cursor.fetchone()
-                if exists is not None:
-                    count = exists[0]
-                else:
-                    # Handle the case when cursor.fetchone() returns None
-                    count = 0  # or any other default value you want to assign
-                    
-                if count > 0:
-                    # The item exists but is out of stock
-                    alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database but item is currently out of stock.', color="warning")
-                else:
-                    # The item does not exist
-                    alert_msg = dbc.Alert(f'Barcode {str(barcode)} not found in database.', color="danger")
+        if exists > 0:
+            # The item exists but is out of stock
+            alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database but item is currently out of stock.', color="warning")
+        else:
+            # The item does not exist
+            alert_msg = dbc.Alert(f'Barcode {str(barcode)} not found in database.', color="danger")
+    
+    # Close the database session
+    db.close()
     
     return alert_msg, rows, rows, None
 
@@ -624,10 +659,17 @@ def detect_deleted_row_ijs_page1(current_data, previous_data):
             if deleted_id:
                 # Connect to the database and update the InStock status
                 try:
-                    with pyodbc.connect(conn_str) as conn:
-                        with conn.cursor() as cursor:
-                            cursor.execute("UPDATE [dbo].[DATA] SET [InStock] = 1 WHERE [ID] = ?", deleted_id)
-                            conn.commit()
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    delete_query = text("UPDATE [dbo].[DATA] SET [DATA06] = 1 WHERE [DATA01] = :deleted_id")
+                    db.execute(delete_query, {"deleted_id": deleted_id})
+                    
+                    # Commit changes to the database
+                    db.commit()
+                    
+                    db.close()
+                    
                     alert_msg = dbc.Alert(f"Barcode {deleted_id} updated in database; set as in stock.", color="success")
                 except Exception as e:
                     alert_msg = dbc.Alert(f"Failed to update barcode {deleted_id} in database: {str(e)}", color="danger")
@@ -656,56 +698,59 @@ def scan_barcode_taart_page1(_, barcode, rows):
     
     # Initialize the alert message
     alert_msg = None
+    
+    # Create a database session using SessionLocal
+    db = SessionLocal()
+    
+    # Define the select query
+    select_query = text("SELECT [Barcode], [Omschrijving] FROM [dbo].[TAART] WHERE [Barcode] = :barcode")
+    
+    # Execute the select query using SQLAlchemy
+    result = db.execute(select_query, {"barcode": barcode}).fetchone()
+    
+    if result:
+        # The barcode exists in the database and the item is in stock, update the status
+        
+        # Define the update query
+        update_query = text(
+            "UPDATE [dbo].[TAART] SET [Aantal] = [Aantal] - 1 WHERE [Barcode] = :barcode"
+        )
+        
+        # Execute the update query using SQLAlchemy
+        db.execute(update_query, {"barcode": barcode})
+        db.commit()  # Commit the update
+        
+        # Create a new row for the product with actual data
+        new_row = {
+            'Barcode': result[0],
+            'Omschrijving': result[1],
+        }
+        rows.append(new_row)
 
-    # Connect to the database
-    with pyodbc.connect(conn_str) as conn:
-        with conn.cursor() as cursor:
-            # Check if the barcode exists in the database and if it is in stock
-            cursor.execute("SELECT COUNT(*) FROM [dbo].[TAART] WHERE [ID] = ?", barcode)
-            
-            result = cursor.fetchone()
-            if result is not None:
-                count = result[0]
-            else:
-                # Handle the case when cursor.fetchone() returns None
-                count = 0  # or any other default value you want to assign
+        alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database and item was in stock.', color="success")
+    else:
+        # The barcode does not exist in the database or item is not in stock
+        
+        # Define the existence check query
+        exists_query = text(
+            "SELECT COUNT(*) FROM [dbo].[TAART] WHERE [Barcode] = :barcode"
+        )
+        
+        # Execute the existence check query using SQLAlchemy
+        exists = db.execute(exists_query, {"barcode": barcode}).fetchone()[0]
 
-            if count > 0:
-                # The barcode exists in the database and the item is in stock, update the status
-                cursor.execute("UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] - 1 WHERE [ID] = ?", barcode)
-                conn.commit()  # Commit the update
-                
-                # Fetch actual product details from the database
-                cursor.execute("SELECT [ID], [Description] FROM [dbo].[TAART] WHERE [ID] = ?", barcode)
-                product_details = cursor.fetchone()
-                if product_details:
-                    # Create a new row for the product with actual data
-                    new_row = {
-                        'Barcode': product_details[0],
-                        'Omschrijving': product_details[1],
-                    }
-                    rows.append(new_row)
-
-                alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database and item was in stock.', color="success")
-            else:
-                # The barcode does not exist in the database or item is not in stock
-                # Check if the item exists at all (regardless of stock status)
-                cursor.execute("SELECT COUNT(*) FROM [dbo].[TAART] WHERE [ID] = ?", barcode)
-                exists = cursor.fetchone()
-                if exists is not None:
-                    count = exists[0]
-                else:
-                    # Handle the case when cursor.fetchone() returns None
-                    count = 0  # or any other default value you want to assign
-
-                if count > 0:
-                    # The item exists but is out of stock
-                    alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database but item is currently out of stock.', color="warning")
-                else:
-                    # The item does not exist
-                    alert_msg = dbc.Alert(f'Barcode {str(barcode)} not found in database.', color="danger")
+        if exists > 0:
+            # The item exists but is out of stock
+            alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database but item is currently out of stock.', color="warning")
+        else:
+            # The item does not exist
+            alert_msg = dbc.Alert(f'Barcode {str(barcode)} not found in database.', color="danger")
+    
+    # Close the database session
+    db.close()
     
     return alert_msg, rows, rows, None
+
 
 @app.callback(
     [Output('deleted-row-taart-page1', 'children'),
@@ -745,10 +790,17 @@ def detect_deleted_row_taart_page1(current_data, previous_data):
             if deleted_id:
                 # Connect to the database and update the InStock status
                 try:
-                    with pyodbc.connect(conn_str) as conn:
-                        with conn.cursor() as cursor:
-                            cursor.execute("UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] + 1 WHERE [ID] = ?", deleted_id)
-                            conn.commit()
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    delete_query = text("UPDATE [dbo].[TAART] SET [Aantal] = [Aantal] + 1 WHERE [Barcode] = :deleted_id")
+                    db.execute(delete_query, {"deleted_id": deleted_id})
+                    
+                    # Commit changes to the database
+                    db.commit()
+                    
+                    db.close()
+                    
                     alert_msg = dbc.Alert(f"Barcode {deleted_id} updated in database; set as in stock.", color="success")
                 except Exception as e:
                     alert_msg = dbc.Alert(f"Failed to update barcode {deleted_id} in database: {str(e)}", color="danger")
@@ -777,54 +829,56 @@ def scan_barcode_diversen_page1(_, barcode, rows):
     
     # Initialize the alert message
     alert_msg = None
+    
+    # Create a database session using SessionLocal
+    db = SessionLocal()
+    
+    # Define the select query
+    select_query = text("SELECT [Barcode], [Omschrijving] FROM [dbo].[DIVERSEN] WHERE [Barcode] = :barcode")
+    
+    # Execute the select query using SQLAlchemy
+    result = db.execute(select_query, {"barcode": barcode}).fetchone()
+    
+    if result:
+        # The barcode exists in the database and the item is in stock, update the status
+        
+        # Define the update query
+        update_query = text(
+            "UPDATE [dbo].[DIVERSEN] SET [Aantal] = [Aantal] - 1 WHERE [Barcode] = :barcode"
+        )
+        
+        # Execute the update query using SQLAlchemy
+        db.execute(update_query, {"barcode": barcode})
+        db.commit()  # Commit the update
+        
+        # Create a new row for the product with actual data
+        new_row = {
+            'Barcode': result[0],
+            'Omschrijving': result[1],
+        }
+        rows.append(new_row)
 
-    # Connect to the database
-    with pyodbc.connect(conn_str) as conn:
-        with conn.cursor() as cursor:
-            # Check if the barcode exists in the database and if it is in stock
-            cursor.execute("SELECT COUNT(*) FROM [dbo].[DIVERSEN] WHERE [ID] = ?", barcode)
+        alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database and item was in stock.', color="success")
+    else:
+        # The barcode does not exist in the database or item is not in stock
+        
+        # Define the existence check query
+        exists_query = text(
+            "SELECT COUNT(*) FROM [dbo].[DIVERSEN] WHERE [Barcode] = :barcode"
+        )
+        
+        # Execute the existence check query using SQLAlchemy
+        exists = db.execute(exists_query, {"barcode": barcode}).fetchone()[0]
 
-            result = cursor.fetchone()
-            if result is not None:
-                count = result[0]
-            else:
-                # Handle the case when cursor.fetchone() returns None
-                count = 0  # or any other default value you want to assign
-                
-            if count > 0:
-                # The barcode exists in the database and the item is in stock, update the status
-                cursor.execute("UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] - 1 WHERE [ID] = ?", barcode)
-                conn.commit()  # Commit the update
-                
-                # Fetch actual product details from the database
-                cursor.execute("SELECT [ID], [Description] FROM [dbo].[DIVERSEN] WHERE [ID] = ?", barcode)
-                product_details = cursor.fetchone()
-                if product_details:
-                    # Create a new row for the product with actual data
-                    new_row = {
-                        'Barcode': product_details[0],
-                        'Omschrijving': product_details[1],
-                    }
-                    rows.append(new_row)
-
-                alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database and item was in stock.', color="success")
-            else:
-                # The barcode does not exist in the database or item is not in stock
-                # Check if the item exists at all (regardless of stock status)
-                cursor.execute("SELECT COUNT(*) FROM [dbo].[DIVERSEN] WHERE [ID] = ?", barcode)
-                exists = cursor.fetchone()
-                if exists is not None:
-                    count = exists[0]
-                else:
-                    # Handle the case when cursor.fetchone() returns None
-                    count = 0  # or any other default value you want to assign
-
-                if count > 0:
-                    # The item exists but is out of stock
-                    alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database but item is currently out of stock.', color="warning")
-                else:
-                    # The item does not exist
-                    alert_msg = dbc.Alert(f'Barcode {str(barcode)} not found in database.', color="danger")
+        if exists > 0:
+            # The item exists but is out of stock
+            alert_msg = dbc.Alert(f'Barcode {str(barcode)} found in database but item is currently out of stock.', color="warning")
+        else:
+            # The item does not exist
+            alert_msg = dbc.Alert(f'Barcode {str(barcode)} not found in database.', color="danger")
+    
+    # Close the database session
+    db.close()
     
     return alert_msg, rows, rows, None
 
@@ -866,10 +920,17 @@ def detect_deleted_row_diversen_page1(current_data, previous_data):
             if deleted_id:
                 # Connect to the database and update the InStock status
                 try:
-                    with pyodbc.connect(conn_str) as conn:
-                        with conn.cursor() as cursor:
-                            cursor.execute("UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] + 1 WHERE [ID] = ?", deleted_id)
-                            conn.commit()
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    delete_query = text("UPDATE [dbo].[DIVERSEN] SET [Aantal] = [Aantal] + 1 WHERE [Barcode] = :deleted_id")
+                    db.execute(delete_query, {"deleted_id": deleted_id})
+                    
+                    # Commit changes to the database
+                    db.commit()
+                    
+                    db.close()
+                    
                     alert_msg = dbc.Alert(f"Barcode {deleted_id} updated in database; set as in stock.", color="success")
                 except Exception as e:
                     alert_msg = dbc.Alert(f"Failed to update barcode {deleted_id} in database: {str(e)}", color="danger")
@@ -900,6 +961,9 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
     if n_clicks is None or n_clicks == 0:
         raise PreventUpdate
     
+    if not any([products, taarten, diversen]):
+        return dbc.Alert("Please add products before generating a PDF.", color="warning"), [], [], []
+    
     if n_clicks is not None and n_clicks > 0:
         
         store_label = next((item['label'] for item in stores if item['value'] == store), None)
@@ -921,7 +985,7 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
         pdf_folder = 'Orders_Pdfs'
         
         # Define PDF filename based on the store name for uniqueness
-        pdf_filename = f'{store}_{formatted_date1}.pdf'
+        pdf_filename = f'{store}_{formatted_date2}.pdf'
         
         # Set up the PDF document
         doc = SimpleDocTemplate(pdf_filename, pagesize=A4, rightMargin=72, leftMargin=72,
@@ -955,12 +1019,11 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
             table_data = table[0]
             table_name = table[1]
             
-            # styles['Title'].fontSize = 12
-            title = Paragraph(table_name, styles['Heading2'])
-            elements.append(title)
-            
-            
             if table_data:
+                
+                title = Paragraph(table_name, styles['Heading2'])
+                elements.append(title)
+                
                 if table_name == "IJS":
                     # Setting up the table for product listing
                     data = [['Barcode', 'Type', 'Omschrijving', 'Gewicht [kg]']] + [[p['Barcode'], p['Type'], p['Omschrijving'], p['Gewicht [kg]']] for p in table_data]
@@ -982,7 +1045,84 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
                 elements.append(table)
                 # elements.append(Spacer(1, 10))
                 
-    
+        # IJS
+        # Initialize dictionaries to store totals
+        type_count = {}
+        type_weight = {}
+        
+        # Calculate totals for each type
+        if products:
+            for product in products:
+                product_type = product['Type']
+                if product_type not in type_count:
+                    type_count[product_type] = 1
+                    type_weight[product_type] = product['Gewicht [kg]']
+                else:
+                    type_count[product_type] += 1
+                    type_weight[product_type] += product['Gewicht [kg]']
+            
+            # Add totals table to the PDF
+            type_totals_data = [['Type', 'Aantal', 'Totaal Gewicht [kg]']]
+            for product_type, count in type_count.items():
+                type_totals_data.append([product_type, count, type_weight[product_type]])
+            
+            # Adding a paragraph to describe the totals table
+            totals_description = Paragraph("IJS TOTAAL", styles['Heading2'])
+            elements.append(totals_description)
+            
+            # Setting up the table for totals
+            totals_table = Table(type_totals_data, colWidths=[100, 60, 100])  # Specify column widths as needed
+            totals_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.white),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                ('ALIGNMENT', (0, 0), (-1, -1), 'LEFT'),  # Align text to the left
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('BOX', (0, 0), (-1, -1), 2, colors.black),
+            ]))
+            totals_table.hAlign = 'LEFT'  # Options are 'LEFT', 'CENTER', 'RIGHT'
+            elements.append(totals_table)
+        
+        for table in [(taarten, "TAARTEN"), (diversen, "DIVERSEN")]:
+            
+            items = table[0]
+            name = table[1]
+            
+            if items:
+                
+                # Initialize dictionaries to store totals
+                barcode_count = {}
+                
+                # Calculate totals for each type
+                for item in items:
+                    item_barcode = item['Omschrijving']
+                    if item_barcode not in barcode_count:
+                        barcode_count[item_barcode] = 1
+                    else:
+                        barcode_count[item_barcode] += 1
+                
+                # Add totals table to the PDF
+                items_totals_data = [['Omschrijving', 'Aantal']]
+                for item_barcode, count in barcode_count.items():
+                    items_totals_data.append([item_barcode, count])
+                
+                # Adding a paragraph to describe the totals table
+                totals_description = Paragraph(f"{name} TOTAAL", styles['Heading2'])
+                elements.append(totals_description)
+                
+                # Setting up the table for totals
+                totals_table = Table(items_totals_data, colWidths=[100, 60, 100])  # Specify column widths as needed
+                totals_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.white),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                    ('ALIGNMENT', (0, 0), (-1, -1), 'LEFT'),  # Align text to the left
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                    ('BOX', (0, 0), (-1, -1), 2, colors.black),
+                ]))
+                totals_table.hAlign = 'LEFT'  # Options are 'LEFT', 'CENTER', 'RIGHT'
+                elements.append(totals_table)
+        
         # Build the PDF
         doc.build(elements)
     
@@ -996,11 +1136,11 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
                 # If the file already exists in the destination folder, remove it
                 if os.path.exists(destination_path):
                     os.remove(destination_path)
-                    print(f"Existing file removed: {destination_path}")
+                    print(f"Bestaande pakbon verwijderd: {destination_path}")
 
                 # Move the file to the destination folder
                 shutil.move(pdf_filename, pdf_folder)
-                print(f"File moved successfully to {pdf_folder}")
+                print(f"Pakbon {store}_{formatted_date2} geplaatst in {pdf_folder}")
 
             except Exception as e:
                 print(f"Error moving file: {e}")
@@ -1022,12 +1162,14 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
                     f'{formatted_date1}',   # Order Date
                     "FALSE",      # Status
                     f"Orders_Pdfs/{store}_{formatted_date2}.pdf",  # File
-                    None,  # Signature
-                    None,   # Timestamp
-                    None  # Note
+                    "",  # Signature
+                    "",   # Timestamp
+                    ""  # Note
                 ]
                 
-                write_data_to_sheet(new_entry)
+                write_data_to_appsheet(new_entry)
+                
+                upload_pdf_to_drive(destination_path)
 
                 # Return success message and empty the table
                 return dbc.Alert("PDF generated and emailed successfully!", color="success"), [], [], []
@@ -1039,7 +1181,6 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
             alert_msg = "Please select a store and add products before generating a PDF."
             if store:
                 alert_msg = "Please add products before generating a PDF."
-                return dbc.Alert(alert_msg, color="warning"), [], [], []
             elif products:
                 alert_msg = "Please select a store before generating a PDF."
                 return dbc.Alert(alert_msg, color="warning")
@@ -1047,146 +1188,158 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen):
 #%%% CALLBACKS PAGE 2 
 # Callback to populate the stock overview table on Page 2
 @app.callback(
-    Output('stock-table-ijs', 'data'),
+    [Output('supply-timestamp-ijs-page2', 'children'),
+     Output('stock-table-ijs', 'data'),
+     Output('stock-count-table-ijs', 'data')],
     [Input('url', 'pathname')],
-    # prevent_initial_call=True
 )
 def show_stock_table_ijs(pathname):
-    # print(f"Updating stock table for path: {pathname}")  # Debug print
     if pathname == '/ijs':
         try:
-            # Connect to the database and execute the query
-            with pyodbc.connect(conn_str, timeout=10) as conn:  # Added timeout for the connection
-                query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type], [InStock] FROM [dbo].[DATA] WHERE [InStock] = 1"
-                stock_df = pd.read_sql(query, conn)
-                data = stock_df.to_dict('records')
-                
-            # Convert the DataFrame to a format Dash DataTable can use
-            return data
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+            
+            # df_products_page2 = pd.DataFrame(columns=['Barcode', 'Omschrijving', 'Gewicht [kg]', 'Type', 'THT', 'Medewerker'])
+            
+            # Execute the query using SQLAlchemy
+            # query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type] FROM [dbo].[DATA] WHERE [InStock] = 1"
+            query = "SELECT [DATA01] as Barcode, [DATA02] as Omschrijving, [ValueNet] as Gewicht, [DATA03] as Type, [DATA04] as THT, [DATA05] as Medewerker FROM [dbo].[DATA] WHERE [DATA06] = 1"
+            stock_df = pd.read_sql(query, db.bind)
+            
+            # Group by Description and calculate the count
+            count_df = stock_df.groupby('Omschrijving').size().reset_index(name='Aantal')
+
+            # Convert DataFrame to dictionary and return data
+            stock_data = stock_df.to_dict('records')
+            
+            count_data = count_df.to_dict('records')
+            
+            write_data_to_supply_sheet("IJS", count_df)
+            
+            current_datetime = datetime.datetime.now()
+            formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            alert_msg = dbc.Alert(formatted_datetime, color="primary")
+            
+            return alert_msg, stock_data, count_data
+        
         except Exception as e:
-            print("Error updating stock table:", e)
-            traceback.print_exc()  # Helps to debug if there's an error
-            return []  # Return an empty list if there's an error
-    raise PreventUpdate  # Don't update the table if we're not on Page 2
-
-# @app.callback(
-#     [Output('barcode-status-ijs-page2', 'children'),
-#      Output('stock-table-ijs', 'data', allow_duplicate=True),
-#      Output('barcode-input-ijs-page2', 'value'),
-#      Output('barcode-output-ijs-page2', 'value')],
-#     [Input('update-ijs-database-button', 'n_clicks')],
-#     [State('barcode-input-ijs-page2', 'value'),
-#      State('barcode-output-ijs-page2', 'value')],
-#     prevent_initial_call=True
-# )
-# def update_stock_table_ijs(n_clicks, barcode_input, barcode_output):
-#     # Check if the update button is clicked and inputs are provided
-#     if n_clicks > 0:
-#         try:
-#             alerts = []
-#             data = []
-
-#             # Update input table
-#             if barcode_input is not None:
-#                 with pyodbc.connect(conn_str, timeout=10) as conn:
-#                     cursor = conn.cursor()
-#                     cursor.execute("UPDATE [dbo].[DATA] SET [InStock] = 1 WHERE [ID] = ?", barcode_input)
-#                     conn.commit()
-#                 alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and added to stock.', color="success"))
-                
-#             # Update output table
-#             if barcode_output is not None:
-#                 with pyodbc.connect(conn_str, timeout=10) as conn:
-#                     cursor = conn.cursor()
-#                     cursor.execute("UPDATE [dbo].[DATA] SET [InStock] = 0 WHERE [ID] = ?", barcode_output)
-#                     conn.commit()
-#                 alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and set out of stock.', color="success"))
-
-#             # Get updated data for the DataTable
-#             with pyodbc.connect(conn_str, timeout=10) as conn:
-#                 query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type], [InStock] FROM [dbo].[DATA] WHERE [InStock] = 1"
-#                 stock_df = pd.read_sql(query, conn)
-#                 data = stock_df.to_dict('records')
-
-#             return alerts[0] if len(alerts) > 0 else None, data, None, None
-#         except Exception as e:
-#             print("Error updating stock table:", e)
-#             traceback.print_exc()
-#             return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), [], None, None, None, None
+            logging.error("Error fetching data:", e)  # Consider using logging for error messages
+            return None, [], []  # Return empty list or display an error message
+        finally:
+            # Ensure session is closed even on exceptions
+            db.close()
+    raise PreventUpdate  # Don't update if not on Page 2
     
-#     # If the update button is not clicked or if inputs are not provided, return no updates
-#     return dash.no_update, dash.no_update, dash.no_update, dash.no_update
-
-
+    
 @app.callback(
-    [Output('barcode-status-ijs-page2', 'children'),
+    [Output('supply-timestamp-ijs-page2', 'children', allow_duplicate=True),
+     Output('barcode-status-ijs-page2', 'children'),
      Output('stock-table-ijs', 'data', allow_duplicate=True),
+     Output('stock-count-table-ijs', 'data', allow_duplicate=True),
      Output('barcode-input-ijs-page2', 'value'),
      Output('barcode-output-ijs-page2', 'value')],
     [Input('barcode-input-ijs-page2', 'n_submit'),
-     Input('barcode-output-ijs-page2', 'n_submit'),
-     State('barcode-input-ijs-page2', 'value'),
-     State('barcode-output-ijs-page2', 'value')],
+      Input('barcode-output-ijs-page2', 'n_submit'),
+      State('barcode-input-ijs-page2', 'value'),
+      State('barcode-output-ijs-page2', 'value')],
     prevent_initial_call=True,
 )
 def scan_barcode_ijs_page2(dummy1, dummy2, barcode_input, barcode_output):
     if barcode_input is None and barcode_output is None:
         raise PreventUpdate  # No barcode entered, do nothing
-    
-    # Initialize the alert message
-    alerts = []
 
-    # Connect to the database
-    if barcode_input is not None:
-        with pyodbc.connect(conn_str, timeout=10) as conn:
-            cursor = conn.cursor()
-            cursor.execute("UPDATE [dbo].[DATA] SET [InStock] = 1 WHERE [ID] = ?", barcode_input)
-            conn.commit()
-        alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and set to in stock.', color="success"))
-    
-    # Update output table
-    if barcode_output is not None:
-        with pyodbc.connect(conn_str, timeout=10) as conn:
-            cursor = conn.cursor()
-            cursor.execute("UPDATE [dbo].[DATA] SET [InStock] = 0 WHERE [ID] = ?", barcode_output)
-            conn.commit()
-        alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and set out of stock.', color="success"))
-
-    # Get updated data for the DataTable
-    with pyodbc.connect(conn_str, timeout=10) as conn:
-        query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type], [InStock] FROM [dbo].[DATA] WHERE [InStock] = 1"
-        stock_df = pd.read_sql(query, conn)
-        data = stock_df.to_dict('records')
-    
-    return alerts[0] if len(alerts) > 0 else None, data, None, None
+    try:
         
+        # Initialize the alert message
+        alerts = []
+        
+        # Create a database session
+        db = SessionLocal()
+
+        # Update barcode status (if input is not None)
+        if barcode_input:
+            query = text("UPDATE [dbo].[DATA] SET [DATA06] = 1 WHERE [DATA01] = :barcode").params(barcode=barcode_input)
+            db.execute(query)
+            alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and set to in stock.', color="success"))
+            db.commit()
+
+        # Update barcode status (if output is not None)
+        if barcode_output:
+            query = text("UPDATE [dbo].[DATA] SET [DATA06] = 0 WHERE [DATA01] = :barcode").params(barcode=barcode_output)
+            db.execute(query)
+            alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and set out of stock.', color="success"))
+            db.commit()
+
+        # Get updated data for the DataTable
+        # query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type] FROM [dbo].[DATA] WHERE [DATA06] = 1"
+        # query = "SELECT [DATA01], [DATA02], [ValueNet], [DATA03], [DATA04], [DATA05] FROM [dbo].[DATA] WHERE [DATA06] = 1"
+        query = "SELECT [DATA01] as Barcode, [DATA02] as Omschrijving, [ValueNet] as Gewicht, [DATA03] as Type, [DATA04] as THT, [DATA05] as Medewerker FROM [dbo].[DATA] WHERE [DATA06] = 1"
+        stock_df = pd.read_sql(query, db.bind)
+        
+        # Group by Description and calculate the count
+        count_df = stock_df.groupby('Omschrijving').size().reset_index(name='Aantal')
+        
+        stock_data = stock_df.to_dict('records')
+        
+        count_data = count_df.to_dict('records')
+        
+        write_data_to_supply_sheet("IJS", count_df)
+        
+        current_datetime = datetime.datetime.now()
+        formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            
+        alert_msg = dbc.Alert(formatted_datetime, color="primary")
+
+    except Exception as e:
+        logging.error("Error fetching or updating data:", e)
+        # Handle errors gracefully (e.g., display an error message)
+        return None, None, None, None, None, None  # Example for resetting all outputs on error
+
+    finally:
+        # Close the session even on exceptions
+        db.close()
+
+    return alert_msg, alerts[0] if len(alerts) > 0 else None, stock_data, count_data, None, None
+
 #%%% CALLBACKS PAGE 3 
 # Callback to populate the stock overview table on Page 3
 @app.callback(
-    Output('stock-table-taart', 'data'),
+    [Output('supply-timestamp-taart-page3', 'children'),
+     Output('stock-table-taart', 'data')],
     [Input('url', 'pathname')],
     # prevent_initial_call=True
 )
 def show_stock_table_taart(pathname):
-    # print(f"Updating stock table for path: {pathname}")  # Debug print
     if pathname == '/taart':
         try:
-            # Connect to the database and execute the query
-            with pyodbc.connect(conn_str, timeout=10) as conn:  # Added timeout for the connection
-                query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[TAART]"
-                stock_df = pd.read_sql(query, conn)
-                data = stock_df.to_dict('records')
-                
-            # Convert the DataFrame to a format Dash DataTable can use
-            return data
-        except Exception as e:
-            print("Error updating stock table:", e)
-            traceback.print_exc()  # Helps to debug if there's an error
-            return []  # Return an empty list if there's an error
-    raise PreventUpdate  # Don't update the table if we're not on Page 3
+            # Create a database session using SessionLocal
+            db = SessionLocal()
 
+            # Execute the query using SQLAlchemy
+            query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[TAART]"
+            stock_df = pd.read_sql(query, db.bind)
+
+            # Convert DataFrame to dictionary and return data
+            data = stock_df.to_dict('records')
+            
+            write_data_to_supply_sheet("TAART", stock_df[selected_columns])
+            
+            current_datetime = datetime.datetime.now()
+            formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            alert_msg = dbc.Alert(formatted_datetime, color="primary")
+            
+            return alert_msg, data
+        except Exception as e:
+            logging.error("Error fetching data:", e)  # Consider using logging for error messages
+            return None, []  # Return empty list or display an error message
+        finally:
+            # Ensure session is closed even on exceptions
+            db.close()
+    raise PreventUpdate  # Don't update if not on Page 3
+    
 @app.callback(
-    [Output('barcode-status-taart-page3', 'children'),
+    [Output('supply-timestamp-taart-page3', 'children', allow_duplicate=True),
+     Output('barcode-status-taart-page3', 'children'),
      Output('stock-table-taart', 'data', allow_duplicate=True),
      Output('barcode-input-taart-page3', 'value'),
      Output('taart-count-input', 'value'),
@@ -1202,73 +1355,108 @@ def show_stock_table_taart(pathname):
 def update_stock_table_taart(n_clicks, barcode_input, item_count_input, barcode_output, item_count_output):
     # Check if the update button is clicked and inputs are provided
     if n_clicks > 0:
+        
         try:
+            
             alerts = []
             data = []
-
+            
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+            
             # Update input table
             if barcode_input is not None and item_count_input is not None:
-                with pyodbc.connect(conn_str, timeout=10) as conn:
-                    cursor = conn.cursor()
-                    update_query = f"UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] + {item_count_input} WHERE [ID] = {barcode_input}"
-                    cursor.execute(update_query)
-                    conn.commit()
-                alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
                 
+                update_query = text("UPDATE [dbo].[TAART] SET [Aantal] = [Aantal] + :item_count WHERE [Barcode] = :barcode")
+                result = db.execute(update_query, {"item_count": item_count_input, "barcode": barcode_input})
+                
+                if result.rowcount == 0:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_input} not found in database.', color="danger"))
+                else:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
+                    
+                # alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
+
             # Update output table
             if barcode_output is not None and item_count_output is not None:
-                with pyodbc.connect(conn_str, timeout=10) as conn:
-                    cursor = conn.cursor()
-                    update_query = f"UPDATE [dbo].[TAART] SET [ItemCount] = [ItemCount] - {item_count_output} WHERE [ID] = {barcode_output}"
-                    cursor.execute(update_query)
-                    conn.commit()
-                alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and stock was adjusted.', color="success"))
+                
+                update_query = text("UPDATE [dbo].[TAART] SET [Aantal] = [Aantal] - :item_count WHERE [Barcode] = :barcode")
+                result = db.execute(update_query, {"item_count": item_count_output, "barcode": barcode_output})
+                
+                if result.rowcount == 0:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_output} not found in database.', color="danger"))
+                else:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and stock was adjusted.', color="success"))
 
-            # Get updated data for the DataTable
-            with pyodbc.connect(conn_str, timeout=10) as conn:
-                query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[TAART]"
-                stock_df = pd.read_sql(query, conn)
-                data = stock_df.to_dict('records')
+            # Commit changes to the database
+            db.commit()
+            
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+            query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[TAART]"
+            stock_df = pd.read_sql(query, db.bind)
 
-            return alerts[0] if len(alerts) > 0 else None, data, None, None, None, None
+            # Convert DataFrame to dictionary and return data
+            data = stock_df.to_dict('records')
+            
+            db.close()
+            
+            write_data_to_supply_sheet("TAART", stock_df[selected_columns])
+            
+            current_datetime = datetime.datetime.now()
+            formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            alert_msg = dbc.Alert(formatted_datetime, color="primary")
+            
+            return alert_msg, alerts[0] if len(alerts) > 0 else None, data, None, None, None, None
         except Exception as e:
-            print("Error updating stock table:", e)
-            traceback.print_exc()
-            return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), [], None, None, None, None
+            logging.error("Error updating stock table:", e)  # Consider using logging for error messages
+            return dash.no_update, dbc.Alert(f"An error occurred: {str(e)}", color="danger"), [], None, None, None, None
     
     # If the update button is not clicked or if inputs are not provided, return no updates
-    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
 @app.callback(
     [Output('add-taart-status', 'children'),
      Output('stock-table-taart', 'data', allow_duplicate=True),
-     Output('new-taart-description', 'value'),
-     Output('new-taart-itemcount', 'value')],
+     Output('new-taart-barcode', 'value'),
+     Output('new-taart-description', 'value')],
     [Input('add-taart-button', 'n_clicks')],
-    [State('new-taart-description', 'value'),
-     State('new-taart-itemcount', 'value')],
+    [State('new-taart-barcode', 'value'),
+     State('new-taart-description', 'value')],
     prevent_initial_call=True
 )
-def add_taart_to_database(n_clicks, description, item_count):
+def add_taart_to_database(n_clicks, barcode, description):
+    
+    item_count = 0
+    
     if n_clicks:
-        if description and item_count:
+        if barcode and description:
             try:
-                with pyodbc.connect(conn_str, timeout=10) as conn:
-                    cursor = conn.cursor()
-                    insert_query = f"INSERT INTO [dbo].[TAART] (Description, ItemCount) VALUES ('{description}', {item_count})"
-                    cursor.execute(insert_query)
-                    conn.commit()
-                    
-                    # Get updated data for the DataTable
-                    with pyodbc.connect(conn_str, timeout=10) as conn:
-                        query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[TAART]"
-                        stock_df = pd.read_sql(query, conn)
-                        data = stock_df.to_dict('records')
-                        
+                
+                # Create a database session using SessionLocal
+                db = SessionLocal()
+                
+                insert_query = text(f"INSERT INTO [dbo].[TAART] (Barcode, Omschrijving, Aantal) VALUES ('{barcode}','{description}',{item_count})")
+                db.execute(insert_query)
+                
+                # Commit changes to the database
+                db.commit()
+                
+                # Create a database session using SessionLocal
+                db = SessionLocal()
+                query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[TAART]"
+                stock_df = pd.read_sql(query, db.bind)
+
+                # Convert DataFrame to dictionary and return data
+                data = stock_df.to_dict('records')
+                
+                db.close()
+                
+                # write_data_to_supply_sheet("TAART", stock_df[selected_columns])
+                
                 return dbc.Alert("New item added to the database.", color="success"), data, None, None
             except Exception as e:
-                print("Error adding item to database:", e)
-                traceback.print_exc()
+                logging.error("Error adding item to database:", e)
                 return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), dash.no_update, dash.no_update, dash.no_update
         else:
             return dbc.Alert("Please provide both description and item count.", color="warning"), dash.no_update, dash.no_update, dash.no_update
@@ -1308,15 +1496,27 @@ def detect_deleted_row_taart_page3(current_data, previous_data):
         # If there are deleted rows, process each one
         for deleted_row in deleted_rows_dicts:
             # Extract the ID of the deleted row
-            deleted_id = deleted_row.get('ID', None)
+            deleted_id = deleted_row.get('Barcode', None)
             # print(deleted_id)
             if deleted_id:
                 # Connect to the database and update the InStock status
                 try:
-                    with pyodbc.connect(conn_str) as conn:
-                        with conn.cursor() as cursor:
-                            cursor.execute("DELETE FROM [dbo].[TAART] WHERE [ID] = ?", deleted_id)
-                            conn.commit()
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    delete_query = text("DELETE FROM [dbo].[TAART] WHERE [Barcode] = :deleted_id")
+                    db.execute(delete_query, {"deleted_id": deleted_id})
+                    
+                    # Commit changes to the database
+                    db.commit()
+                    
+                    db.close()
+                    
+                    query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[TAART]"
+                    stock_df = pd.read_sql(query, db.bind)
+                    
+                    # write_data_to_supply_sheet("TAART", stock_df[selected_columns])
+                   
                     alert_msg = dbc.Alert(f"Barcode {deleted_id} deleted from database.", color="success")
                 except Exception as e:
                     alert_msg = dbc.Alert(f"Failed to update barcode {deleted_id} in database: {str(e)}", color="danger")
@@ -1330,32 +1530,45 @@ def detect_deleted_row_taart_page3(current_data, previous_data):
 
 
 #%%% CALLBACKS PAGE 4
-# Callback to populate the stock overview table on Page 3
+# Callback to populate the stock overview table on Page 4
 @app.callback(
-    Output('stock-table-diversen', 'data'),
+    [Output('supply-timestamp-diversen-page4', 'children'),
+     Output('stock-table-diversen', 'data')],
     [Input('url', 'pathname')],
     # prevent_initial_call=True
 )
 def show_stock_table_diversen(pathname):
-    # print(f"Updating stock table for path: {pathname}")  # Debug print
     if pathname == '/diversen':
         try:
-            # Connect to the database and execute the query
-            with pyodbc.connect(conn_str, timeout=10) as conn:  # Added timeout for the connection
-                query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
-                stock_df = pd.read_sql(query, conn)
-                data = stock_df.to_dict('records')
-                
-            # Convert the DataFrame to a format Dash DataTable can use
-            return data
-        except Exception as e:
-            print("Error updating stock table:", e)
-            traceback.print_exc()  # Helps to debug if there's an error
-            return []  # Return an empty list if there's an error
-    raise PreventUpdate  # Don't update the table if we're not on Page 3
+            # Create a database session using SessionLocal
+            db = SessionLocal()
 
+            # Execute the query using SQLAlchemy
+            query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[DIVERSEN]"
+            stock_df = pd.read_sql(query, db.bind)
+
+            # Convert DataFrame to dictionary and return data
+            data = stock_df.to_dict('records')
+            
+            write_data_to_supply_sheet("DIVERSEN", stock_df[selected_columns])
+            
+            current_datetime = datetime.datetime.now()
+            formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            alert_msg = dbc.Alert(formatted_datetime, color="primary")
+            
+            return alert_msg, data
+        except Exception as e:
+            logging.error("Error fetching data:", e)  # Consider using logging for error messages
+            return None, []  # Return empty list or display an error message
+        finally:
+            # Ensure session is closed even on exceptions
+            db.close()
+    raise PreventUpdate  # Don't update if not on Page 4
+    
+    
 @app.callback(
-    [Output('barcode-status-diversen-page4', 'children'),
+    [Output('supply-timestamp-diversen-page4', 'children', allow_duplicate=True),
+     Output('barcode-status-diversen-page4', 'children'),
      Output('stock-table-diversen', 'data', allow_duplicate=True),
      Output('barcode-input-diversen-page4', 'value'),
      Output('diversen-count-input', 'value'),
@@ -1371,76 +1584,113 @@ def show_stock_table_diversen(pathname):
 def update_stock_table_diversen(n_clicks, barcode_input, item_count_input, barcode_output, item_count_output):
     # Check if the update button is clicked and inputs are provided
     if n_clicks > 0:
+        
         try:
+            
             alerts = []
             data = []
-
+            
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+            
             # Update input table
             if barcode_input is not None and item_count_input is not None:
-                with pyodbc.connect(conn_str, timeout=10) as conn:
-                    cursor = conn.cursor()
-                    update_query = f"UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] + {item_count_input} WHERE [ID] = {barcode_input}"
-                    cursor.execute(update_query)
-                    conn.commit()
-                alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
                 
+                update_query = text("UPDATE [dbo].[DIVERSEN] SET [Aantal] = [Aantal] + :item_count WHERE [Barcode] = :barcode")
+                result = db.execute(update_query, {"item_count": item_count_input, "barcode": barcode_input})
+                
+                if result.rowcount == 0:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_input} not found in database.', color="danger"))
+                else:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
+                    
+                # alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
+
             # Update output table
             if barcode_output is not None and item_count_output is not None:
-                with pyodbc.connect(conn_str, timeout=10) as conn:
-                    cursor = conn.cursor()
-                    update_query = f"UPDATE [dbo].[DIVERSEN] SET [ItemCount] = [ItemCount] - {item_count_output} WHERE [ID] = {barcode_output}"
-                    cursor.execute(update_query)
-                    conn.commit()
-                alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and stock was adjusted.', color="success"))
+                
+                update_query = text("UPDATE [dbo].[DIVERSEN] SET [Aantal] = [Aantal] - :item_count WHERE [Barcode] = :barcode")
+                result = db.execute(update_query, {"item_count": item_count_output, "barcode": barcode_output})
+                
+                if result.rowcount == 0:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_output} not found in database.', color="danger"))
+                else:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and stock was adjusted.', color="success"))
 
-            # Get updated data for the DataTable
-            with pyodbc.connect(conn_str, timeout=10) as conn:
-                query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
-                stock_df = pd.read_sql(query, conn)
-                data = stock_df.to_dict('records')
+            # Commit changes to the database
+            db.commit()
+            
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+            query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[DIVERSEN]"
+            stock_df = pd.read_sql(query, db.bind)
 
-            return alerts[0] if len(alerts) > 0 else None, data, None, None, None, None
+            # Convert DataFrame to dictionary and return data
+            data = stock_df.to_dict('records')
+            
+            db.close()
+            
+            write_data_to_supply_sheet("DIVERSEN", stock_df[selected_columns])  
+            
+            current_datetime = datetime.datetime.now()
+            formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            alert_msg = dbc.Alert(formatted_datetime, color="primary")
+
+            return alert_msg, alerts[0] if len(alerts) > 0 else None, data, None, None, None, None
         except Exception as e:
-            print("Error updating stock table:", e)
-            traceback.print_exc()
+            logging.error("Error updating stock table:", e)  # Consider using logging for error messages
             return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), [], None, None, None, None
     
     # If the update button is not clicked or if inputs are not provided, return no updates
-    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
 @app.callback(
     [Output('add-diversen-status', 'children'),
      Output('stock-table-diversen', 'data', allow_duplicate=True),
-     Output('new-diversen-description', 'value'),
-     Output('new-diversen-itemcount', 'value')],
+     Output('new-diversen-barcode', 'value'),
+     Output('new-diversen-description', 'value')],
     [Input('add-diversen-button', 'n_clicks')],
-    [State('new-diversen-description', 'value'),
-     State('new-diversen-itemcount', 'value')],
+    [State('new-diversen-barcode', 'value'),
+     State('new-diversen-description', 'value')],
     prevent_initial_call=True
 )
-def add_diversen_to_database(n_clicks, description, item_count):
+def add_diversen_to_database(n_clicks, barcode, description):
+    
+    item_count = 0
+    
     if n_clicks:
-        if description and item_count:
+        if barcode and description:
             try:
-                with pyodbc.connect(conn_str, timeout=10) as conn:
-                    cursor = conn.cursor()
-                    insert_query = f"INSERT INTO [dbo].[DIVERSEN] (Description, ItemCount) VALUES ('{description}', {item_count})"
-                    cursor.execute(insert_query)
-                    conn.commit()
-                    
-                    # Get updated data for the DataTable
-                    with pyodbc.connect(conn_str, timeout=10) as conn:
-                        query = "SELECT [ID], [Description], [ItemCount] FROM [dbo].[DIVERSEN]"
-                        stock_df = pd.read_sql(query, conn)
-                        data = stock_df.to_dict('records')
-                        
+                
+                # Create a database session using SessionLocal
+                db = SessionLocal()
+                
+                insert_query = text(f"INSERT INTO [dbo].[DIVERSEN] (Barcode, Omschrijving, Aantal) VALUES ('{barcode}','{description}',{item_count})")
+                db.execute(insert_query)
+                
+                # Commit changes to the database
+                db.commit()
+                
+                # Create a database session using SessionLocal
+                db = SessionLocal()
+                query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[DIVERSEN]"
+                stock_df = pd.read_sql(query, db.bind)
+
+                # Convert DataFrame to dictionary and return data
+                data = stock_df.to_dict('records')
+                
+                db.close()
+                
+                # write_data_to_supply_sheet("DIVERSEN", stock_df[selected_columns])
+                
                 return dbc.Alert("New item added to the database.", color="success"), data, None, None
             except Exception as e:
-                print("Error adding item to database:", e)
-                traceback.print_exc()
+                logging.error("Error adding item to database:", e)
                 return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), dash.no_update, dash.no_update, dash.no_update
         else:
             return dbc.Alert("Please provide both description and item count.", color="warning"), dash.no_update, dash.no_update, dash.no_update
+    
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
 @app.callback(
     [Output('deleted-row-diversen-page4', 'children'),
@@ -1475,15 +1725,29 @@ def detect_deleted_row_diversen_page4(current_data, previous_data):
         # If there are deleted rows, process each one
         for deleted_row in deleted_rows_dicts:
             # Extract the ID of the deleted row
-            deleted_id = deleted_row.get('ID', None)
+            deleted_id = deleted_row.get('Barcode', None)
             # print(deleted_id)
             if deleted_id:
                 # Connect to the database and update the InStock status
                 try:
-                    with pyodbc.connect(conn_str) as conn:
-                        with conn.cursor() as cursor:
-                            cursor.execute("DELETE FROM [dbo].[DIVERSEN] WHERE [ID] = ?", deleted_id)
-                            conn.commit()
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    delete_query = text("DELETE FROM [dbo].[DIVERSEN] WHERE [Barcode] = :deleted_id")
+                    db.execute(delete_query, {"deleted_id": deleted_id})
+                    
+                    # Commit changes to the database
+                    db.commit()
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[DIVERSEN]"
+                    stock_df = pd.read_sql(query, db.bind)
+
+                    db.close()
+                    
+                    # write_data_to_supply_sheet("DIVERSEN", stock_df[selected_columns])
+                    
                     alert_msg = dbc.Alert(f"Barcode {deleted_id} deleted from database.", color="success")
                 except Exception as e:
                     alert_msg = dbc.Alert(f"Failed to update barcode {deleted_id} in database: {str(e)}", color="danger")
@@ -1494,7 +1758,6 @@ def detect_deleted_row_diversen_page4(current_data, previous_data):
         alert_msg = dbc.Alert("No rows have been deleted.", color="warning")
 
     return alert_msg, current_data
-    
-    return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
 if __name__ == '__main__':
     app.run_server(debug=True)
