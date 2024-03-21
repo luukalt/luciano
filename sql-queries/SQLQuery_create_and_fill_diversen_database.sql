@@ -1,8 +1,8 @@
-CREATE TABLE [dbo].[TAART] (
+CREATE TABLE [dbo].[DIVERSEN] (
     [ID] [int] IDENTITY(1,1) NOT NULL,
     [Description] [nvarchar](100) NULL,
     [ItemCount] [int] NULL,
-    CONSTRAINT [PK_TAART] PRIMARY KEY CLUSTERED 
+    CONSTRAINT [PK_DIVERSEN] PRIMARY KEY CLUSTERED 
     (
         [ID] ASC
     ) WITH (
@@ -15,7 +15,7 @@ CREATE TABLE [dbo].[TAART] (
 ) ON [PRIMARY];
 
 -- Insert dummy data
-INSERT INTO [dbo].[TAART] 
+INSERT INTO [dbo].[DIVERSEN] 
     (Description, ItemCount)
 VALUES ('Item 1', 10),
        ('Item 2', 15),
