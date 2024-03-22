@@ -80,8 +80,8 @@ def clear_sheet(service, spreadsheet_id, range_name):
 def write_data_to_appsheet(data):
 
     # The ID and range of a sample spreadsheet.
-    SPREADSHEET_ID = '1vfBDEo1d1XVWZAffVwOGa1AvWc6HSRPKt23LuZPGbvY'
-    RANGE_NAME = 'Orders!A:H'
+    SPREADSHEET_ID = '1iY9ui36ZCRYt0dbuUN-rBVaF8omYKZRaS9cyrVrYm1I'
+    RANGE_NAME = 'Orders!A:I'
     
     creds = authenticate()
             
@@ -104,13 +104,13 @@ def write_data_to_appsheet(data):
             row_index = existing_order_ids.index(order_id) + 1
  
             # Define the new range for the data
-            new_range_name = f'Orders!A{row_index}:H{row_index}'
+            new_range_name = f'Orders!A{row_index}:I{row_index}'
 
         else:
             # Calculate the next row number for the new entry
             next_row_number = len(values) + 1
             # Define the new range for the data
-            new_range_name = f'Orders!A{next_row_number}:H{next_row_number}'
+            new_range_name = f'Orders!A{next_row_number}:I{next_row_number}'
 
             start_index = len(values)
             number_of_rows = 1
@@ -119,8 +119,6 @@ def write_data_to_appsheet(data):
         # Prepare your data to be written to the sheet
         # value_data = [data]
         value_data = [data]
-        
-        [["Test Data", "Test Data", "Test Data", "Test Data", "Test Data", "Test Data", "Test Data", "Test Data"]]
         
         # Call the Sheets API to update the values
         result = service.spreadsheets().values().update(
@@ -168,7 +166,7 @@ def upload_pdf_to_drive(pdf_path):
     """
     
     # ID of the Google Drive folder where you want to upload the PDF
-    folder_id = '1MqPvv1ATRoMh3sRu9qDEuH6ty3nE0HmR'
+    folder_id = '1jiyFm7hLyLGm1DNGsW3Z5lYik8gNZtlf'
     
     # Authenticate
     creds = authenticate()
