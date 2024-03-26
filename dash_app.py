@@ -12,7 +12,7 @@ from dash import html, dcc, dash_table, callback, Input, Output, State
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, KeepTogether
 from reportlab.lib import colors
 
 from sqlalchemy import create_engine, text
@@ -25,13 +25,14 @@ from google_utils import write_data_to_appsheet, write_data_to_supply_sheet, upl
 #%% START APP
 # Initialize Dash app
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
+app.title = 'Luciano Dashboard'
 
 #%% DEFINE SQL PARAMETERS
 # Define the connection parameters
-server_name = 'A7\\SQLEXPRESS'  # Replace with your SQL Server instance name or IP address
+server_name = 'LAPTOP-1JTJJ292\\SQLEXPRESS'  # Replace with your SQL Server instance name or IP address
 database_name = 'AS-SW'  # Replace with your database name
 username = 'assw'  # Replace with your SQL Server username
-password = 'assw2024'  # Replace with your SQL Server password
+password = 'assw2024!'  # Replace with your SQL Server password
 
 # Create a connection string
 conn_str = f'DRIVER={{SQL Server}};SERVER={server_name};DATABASE={database_name};UID={username};PWD={password}'
@@ -64,6 +65,8 @@ stores = [
     {'label': 'Luciano Zandvoort XL', 'value': 'LZXL'},
     {'label': 'Luciano Zandvoort XS', 'value': 'LZXS'},
     {'label': 'Moments Voorschoten', 'value': 'MV'},
+    {'label': 'Eenmalige klant', 'value': 'EK'},
+    {'label': 'Breuk', 'value': 'BREUK'},
 ]
 
 store_library = {}
@@ -76,6 +79,9 @@ for i, store in enumerate(stores, 1):
 df_products = pd.DataFrame(columns=['Barcode', 'Type', 'Omschrijving', 'Gewicht [kg]'])
 df_taart = pd.DataFrame(columns=['Omschrijving', 'Aantal'])
 df_diversen = pd.DataFrame(columns=['Omschrijving', 'Aantal'])
+df_suikervrij = pd.DataFrame(columns=['Omschrijving', 'Aantal'])
+df_gebak = pd.DataFrame(columns=['Omschrijving', 'Aantal'])
+df_potjes = pd.DataFrame(columns=['Omschrijving', 'Aantal'])
 
 # Define columns for google sheet supply (TAART + DIVERSEN)
 selected_columns = ['Omschrijving', 'Aantal']  # Adjust column names as needed
@@ -87,6 +93,10 @@ navbar = dbc.NavbarSimple(
         dbc.NavItem(dcc.Link('IJS', href='/ijs', className='nav-link')),
         dbc.NavItem(dcc.Link('TAART', href='/taart', className='nav-link')),
         dbc.NavItem(dcc.Link('DIVERSEN', href='/diversen', className='nav-link')),
+        dbc.NavItem(dcc.Link('SUIKERVRIJ', href='/suikervrij', className='nav-link')),
+        dbc.NavItem(dcc.Link('GEBAK', href='/gebak', className='nav-link')),
+        dbc.NavItem(dcc.Link('POTJES', href='/potjes', className='nav-link')),
+        
         # Add more navigation items here as needed
     ],
     brand="Luciano Voorraad Beheer",
@@ -143,7 +153,7 @@ page_1_layout = dbc.Container([
                                     dbc.ModalFooter(
                                         [
                                             # dbc.Button("Cancel", id="cancel_clear", className="mr-auto"),
-                                            dbc.Button("Clear", id="confirm_clear", className="ml-auto"),
+                                            dbc.Button("Maak leeg", id="confirm_clear", className="ml-auto"),
                                         ]
                                     ),
                                 ],
@@ -155,14 +165,12 @@ page_1_layout = dbc.Container([
                     html.Div(id='pdf-generation-status', className="mt-2")
                 ])
             ]),
-        ], width=4),
-        
-
+        ], width=4), 
     ], className="mt-3"),
     dbc.Row([
         dbc.Col([
             dbc.Card([
-                dbc.CardHeader("IJS"),
+                dbc.CardHeader("IJS", id="ijs-header"),
                 dbc.CardBody([
                     dbc.Input(id='barcode-input-ijs-page1', type='text', placeholder='Klik eerst hier en scan dan de ijsbakken', debounce=True),
                     html.Div(id='barcode-status-ijs-page1', className="mt-2"),  # This will display the status after checking the barcode
@@ -188,10 +196,10 @@ page_1_layout = dbc.Container([
         ], width=6),
         dbc.Col([
             dbc.Card([
-                dbc.CardHeader("TAART"),
+                dbc.CardHeader("TAART", id="taart-header"),
                 dbc.CardBody([
-                    dbc.Button('Voeg toe', id='button-input-taart-page1', n_clicks=0, color="success"),
-                    dbc.Input(id='barcode-input-taart-page1', type='text', placeholder='Klik eerst hier en scan dan de taart barcode', debounce=True),
+                    # dbc.Button('Voeg toe', id='button-input-taart-page1', n_clicks=0, color="success"),
+                    dbc.Input(id='barcode-input-taart-page1', type='text', placeholder='Klik eerst hier en scan dan de taart barcode', debounce=True, style={"margin-bottom": "10px"}),
                     dbc.Input(id='taart-count-input-page1',  type='number', placeholder='Vul aantal in', min=0, debounce=True),
                     html.Div(id='barcode-status-taart-page1', className="mt-2"),  # This will display the status after checking the barcode
                     html.Div(id='deleted-row-taart-page1', className="mt-2"),  # This will display the status after checking the barcode 
@@ -212,14 +220,12 @@ page_1_layout = dbc.Container([
                         }
                     )
                 ])
-            ]),
-        ], width=3),
-        dbc.Col([
+            ], style={"margin-bottom": "20px"}),
             dbc.Card([
-                dbc.CardHeader("DIVERSEN"),
+                dbc.CardHeader("DIVERSEN", id="diversen-header"),
                 dbc.CardBody([
-                    dbc.Button('Voeg toe', id='button-input-diversen-page1', n_clicks=0, color="success"),
-                    dbc.Input(id='barcode-input-diversen-page1', type='text', placeholder='Klik eerst hier en scan dan de producten', debounce=True),
+                    # dbc.Button('Voeg toe', id='button-input-diversen-page1', n_clicks=0, color="success"),
+                    dbc.Input(id='barcode-input-diversen-page1', type='text', placeholder='Klik eerst hier en scan dan de producten', debounce=True, style={"margin-bottom": "10px"}),
                     dbc.Input(id='diversen-count-input-page1',  type='number', placeholder='Vul aantal in', min=0, debounce=True),
                     html.Div(id='barcode-status-diversen-page1', className="mt-2"),  # This will display the status after checking the barcode
                     html.Div(id='deleted-row-diversen-page1', className="mt-2"),  # This will display the status after checking the barcode 
@@ -240,12 +246,90 @@ page_1_layout = dbc.Container([
                         }
                     )
                 ])
-            ]),
-        ], width=3),
+            ], style={"margin-bottom": "20px"}),
+            dbc.Card([
+                dbc.CardHeader("SUIKERVRIJ", id="suikervrij-header"),
+                dbc.CardBody([
+                    # dbc.Button('Voeg toe', id='button-input-suikervrij-page1', n_clicks=0, color="success"),
+                    dbc.Input(id='barcode-input-suikervrij-page1', type='text', placeholder='Klik eerst hier en scan dan de producten', debounce=True, style={"margin-bottom": "10px"}),
+                    dbc.Input(id='suikervrij-count-input-page1',  type='number', placeholder='Vul aantal in', min=0, debounce=True),
+                    html.Div(id='barcode-status-suikervrij-page1', className="mt-2"),  # This will display the status after checking the barcode
+                    html.Div(id='deleted-row-suikervrij-page1', className="mt-2"),  # This will display the status after checking the barcode 
+                    dash_table.DataTable(
+                        id='suikervrij-table-page1',
+                        columns=[{'name': i, 'id': i} for i in df_suikervrij.columns],
+                        data=df_suikervrij.to_dict('records'),
+                        editable=False,
+                        row_deletable=True,
+                        # filter_action='native',  # Enable filtering
+                        sort_action='native',  # Enable sorting
+                        style_table={'overflowX': 'auto'},
+                        page_action='none',
+                        style_cell={
+                            'minWidth': '100px', 'width': '150px', 'maxWidth': '180px',
+                            'overflow': 'hidden',
+                            'textOverflow': 'ellipsis',
+                        }
+                    )
+                ])
+            ], style={"margin-bottom": "20px"}),
+            dbc.Card([
+                dbc.CardHeader("GEBAK", id="gebak-header"),
+                dbc.CardBody([
+                    # dbc.Button('Voeg toe', id='button-input-gebak-page1', n_clicks=0, color="success"),
+                    dbc.Input(id='barcode-input-gebak-page1', type='text', placeholder='Klik eerst hier en scan dan de producten', debounce=True, style={"margin-bottom": "10px"}),
+                    dbc.Input(id='gebak-count-input-page1',  type='number', placeholder='Vul aantal in', min=0, debounce=True),
+                    html.Div(id='barcode-status-gebak-page1', className="mt-2"),  # This will display the status after checking the barcode
+                    html.Div(id='deleted-row-gebak-page1', className="mt-2"),  # This will display the status after checking the barcode 
+                    dash_table.DataTable(
+                        id='gebak-table-page1',
+                        columns=[{'name': i, 'id': i} for i in df_gebak.columns],
+                        data=df_gebak.to_dict('records'),
+                        editable=False,
+                        row_deletable=True,
+                        # filter_action='native',  # Enable filtering
+                        sort_action='native',  # Enable sorting
+                        style_table={'overflowX': 'auto'},
+                        page_action='none',
+                        style_cell={
+                            'minWidth': '100px', 'width': '150px', 'maxWidth': '180px',
+                            'overflow': 'hidden',
+                            'textOverflow': 'ellipsis',
+                        }
+                    )
+                ])
+            ], style={"margin-bottom": "20px"}),
+            dbc.Card([
+                dbc.CardHeader("POTJES", id="potjes-header"),
+                dbc.CardBody([
+                    # dbc.Button('Voeg toe', id='button-input-potjes-page1', n_clicks=0, color="success"),
+                    dbc.Input(id='barcode-input-potjes-page1', type='text', placeholder='Klik eerst hier en scan dan de producten', debounce=True, style={"margin-bottom": "10px"}),
+                    dbc.Input(id='potjes-count-input-page1',  type='number', placeholder='Vul aantal in', min=0, debounce=True),
+                    html.Div(id='barcode-status-potjes-page1', className="mt-2"),  # This will display the status after checking the barcode
+                    html.Div(id='deleted-row-potjes-page1', className="mt-2"),  # This will display the status after checking the barcode 
+                    dash_table.DataTable(
+                        id='potjes-table-page1',
+                        columns=[{'name': i, 'id': i} for i in df_potjes.columns],
+                        data=df_potjes.to_dict('records'),
+                        editable=False,
+                        row_deletable=True,
+                        # filter_action='native',  # Enable filtering
+                        sort_action='native',  # Enable sorting
+                        style_table={'overflowX': 'auto'},
+                        page_action='none',
+                        style_cell={
+                            'minWidth': '100px', 'width': '150px', 'maxWidth': '180px',
+                            'overflow': 'hidden',
+                            'textOverflow': 'ellipsis',
+                        }
+                    )
+                ])
+            ], style={"margin-bottom": "20px"}),
+        ], width=6),
     ], className="mt-3"),
 ], fluid=True)
 
-#%%% page 2 layout
+#%%% page 2 layout [IJS]
 page_2_layout = dbc.Container([
     navbar,
     html.H1('OVERZICHT DATABASE - IJS'),
@@ -279,7 +363,7 @@ page_2_layout = dbc.Container([
         ], width=3),
         dbc.Col([
             dbc.Card([
-                    dbc.CardHeader("VOORRAAD"),
+                    dbc.CardHeader("VOORRAAD", id="stock-ijs-header"),
                     dbc.CardBody([
                         dash_table.DataTable(
                             id='stock-table-ijs',
@@ -325,7 +409,7 @@ page_2_layout = dbc.Container([
     ], className="mt-3"),
 ], fluid=True)
 
-#%%% page 3 layout
+#%%% page 3 layout [TAART]
 page_3_layout = dbc.Container([
     navbar,
     html.H1('OVERZICHT DATABASE - TAART'),
@@ -405,7 +489,7 @@ page_3_layout = dbc.Container([
     ], className="mt-3"),
 ], fluid=True)
 
-#%%% page 4 layout
+#%%% page 4 layout [DIVERSEN]
 page_4_layout = dbc.Container([
     navbar,
     html.H1('OVERZICHT DATABASE - DIVERSEN'),
@@ -485,12 +569,254 @@ page_4_layout = dbc.Container([
     ], className="mt-3"),
 ], fluid=True)
 
+#%%% page 5 layout [SUIKERVRIJ]
+page_5_layout = dbc.Container([
+    navbar,
+    html.H1('OVERZICHT DATABASE - SUIKERVRIJ'),
+    # dcc.Link('Ga terug naar PAKBON', href='/'),
+    html.Br(),
+    dbc.Row([
+        dbc.Col([
+            dbc.Card([
+                dbc.CardHeader("ACTIES"),
+                dbc.CardBody([
+                    dbc.Button("Update Database", id='update-suikervrij-database-button', color="primary", className="mt-2", n_clicks=0),
+                    html.Div(id='barcode-status-suikervrij-page5', className="mt-2"),  # This will display the status after checking the barcode
+                ])
+            ]),
+            
+            html.Br(),
+            
+            dbc.Card([
+                dbc.CardHeader("SCAN ITEM NAAR VOORRAAD"),
+                dbc.CardBody([
+                    dbc.Input(id='barcode-input-suikervrij-page5', type='text', placeholder='Vul Item Barcode in', debounce=True),
+                    html.Br(),
+                    dbc.Input(id='suikervrij-count-input', type='number', placeholder='Vul aantal in', min=0, debounce=True),
+                    # html.Div(id='barcode-input-status-taart-page3', className="mt-2"),  # This will display the status after checking the barcode
+                ])
+            ]),
+            
+            html.Br(),
+            
+            dbc.Card([
+                dbc.CardHeader("SCAN ITEM UIT VOORRAAD"),
+                dbc.CardBody([
+                    dbc.Input(id='barcode-output-suikervrij-page5', type='text', placeholder='Vul Item Barcode in', debounce=True),
+                    html.Br(),
+                    dbc.Input(id='suikervrij-count-output', type='number', placeholder='Vul aantal in', min=0, debounce=True),
+                    # html.Div(id='barcode-output-status-taart-page3', className="mt-2"),  # This will display the status after checking the barcode
+                ])
+            ]),
+            
+            html.Br(),
+            
+            dbc.Card([
+                dbc.CardHeader("NIEUW ITEM"),
+                dbc.CardBody([
+                    dbc.Input(id='new-suikervrij-barcode', type='text', placeholder='Barcode'),
+                    html.Br(),
+                    dbc.Input(id='new-suikervrij-description', type='text', placeholder='Omschrijving'),
+                    html.Br(),
+                    dbc.Button('Voeg item toe', id='add-suikervrij-button', color="success", className="mt-2", n_clicks=0),
+                    html.Div(id='add-suikervrij-status')
+                ])
+            ]),
+        ], width=4),
+        dbc.Col([
+            dbc.Card([
+                    dbc.CardHeader("VOORRAAD"),
+                    dbc.CardBody([
+                        html.Div(id='supply-timestamp-suikervrij-page5', className="mt-2"),
+                        html.Div(id='deleted-row-suikervrij-page5', className="mt-2"),  # This will display the status after checking the barcode
+                        dash_table.DataTable(
+                            id='stock-table-suikervrij',
+                            # editable=False,
+                            row_deletable=True,
+                            # filter_action='native',  # Enable filtering
+                            # sort_action='native',  # Enable sorting
+                            style_table={'overflowX': 'auto'},
+                            # page_action='none',
+                            style_cell={
+                                'minWidth': '100px', 'width': '150px', 'maxWidth': '180px',
+                                'overflow': 'hidden',
+                                'textOverflow': 'ellipsis',
+                            }
+                        )
+                    ])
+                ]),
+        ], width=6),
+    ], className="mt-3"),
+], fluid=True)
+
+#%%% page 6 layout [GEBAK]
+page_6_layout = dbc.Container([
+    navbar,
+    html.H1('OVERZICHT DATABASE - GEBAK'),
+    # dcc.Link('Ga terug naar PAKBON', href='/'),
+    html.Br(),
+    dbc.Row([
+        dbc.Col([
+            dbc.Card([
+                dbc.CardHeader("ACTIES"),
+                dbc.CardBody([
+                    dbc.Button("Update Database", id='update-gebak-database-button', color="primary", className="mt-2", n_clicks=0),
+                    html.Div(id='barcode-status-gebak-page6', className="mt-2"),  # This will display the status after checking the barcode
+                ])
+            ]),
+            
+            html.Br(),
+            
+            dbc.Card([
+                dbc.CardHeader("SCAN ITEM NAAR VOORRAAD"),
+                dbc.CardBody([
+                    dbc.Input(id='barcode-input-gebak-page6', type='text', placeholder='Vul Item Barcode in', debounce=True),
+                    html.Br(),
+                    dbc.Input(id='gebak-count-input', type='number', placeholder='Vul aantal in', min=0, debounce=True),
+                    # html.Div(id='barcode-input-status-taart-page3', className="mt-2"),  # This will display the status after checking the barcode
+                ])
+            ]),
+            
+            html.Br(),
+            
+            dbc.Card([
+                dbc.CardHeader("SCAN ITEM UIT VOORRAAD"),
+                dbc.CardBody([
+                    dbc.Input(id='barcode-output-gebak-page6', type='text', placeholder='Vul Item Barcode in', debounce=True),
+                    html.Br(),
+                    dbc.Input(id='gebak-count-output', type='number', placeholder='Vul aantal in', min=0, debounce=True),
+                    # html.Div(id='barcode-output-status-taart-page3', className="mt-2"),  # This will display the status after checking the barcode
+                ])
+            ]),
+            
+            html.Br(),
+            
+            dbc.Card([
+                dbc.CardHeader("NIEUW ITEM"),
+                dbc.CardBody([
+                    dbc.Input(id='new-gebak-barcode', type='text', placeholder='Barcode'),
+                    html.Br(),
+                    dbc.Input(id='new-gebak-description', type='text', placeholder='Omschrijving'),
+                    html.Br(),
+                    dbc.Button('Voeg item toe', id='add-gebak-button', color="success", className="mt-2", n_clicks=0),
+                    html.Div(id='add-gebak-status')
+                ])
+            ]),
+        ], width=4),
+        dbc.Col([
+            dbc.Card([
+                    dbc.CardHeader("VOORRAAD"),
+                    dbc.CardBody([
+                        html.Div(id='supply-timestamp-gebak-page6', className="mt-2"),
+                        html.Div(id='deleted-row-gebak-page6', className="mt-2"),  # This will display the status after checking the barcode
+                        dash_table.DataTable(
+                            id='stock-table-gebak',
+                            # editable=False,
+                            row_deletable=True,
+                            # filter_action='native',  # Enable filtering
+                            # sort_action='native',  # Enable sorting
+                            style_table={'overflowX': 'auto'},
+                            # page_action='none',
+                            style_cell={
+                                'minWidth': '100px', 'width': '150px', 'maxWidth': '180px',
+                                'overflow': 'hidden',
+                                'textOverflow': 'ellipsis',
+                            }
+                        )
+                    ])
+                ]),
+        ], width=6),
+    ], className="mt-3"),
+], fluid=True)
+
+#%%% page 7 layout [POTJES]
+page_7_layout = dbc.Container([
+    navbar,
+    html.H1('OVERZICHT DATABASE - POTJES'),
+    # dcc.Link('Ga terug naar PAKBON', href='/'),
+    html.Br(),
+    dbc.Row([
+        dbc.Col([
+            dbc.Card([
+                dbc.CardHeader("ACTIES"),
+                dbc.CardBody([
+                    dbc.Button("Update Database", id='update-potjes-database-button', color="primary", className="mt-2", n_clicks=0),
+                    html.Div(id='barcode-status-potjes-page7', className="mt-2"),  # This will display the status after checking the barcode
+                ])
+            ]),
+            
+            html.Br(),
+            
+            dbc.Card([
+                dbc.CardHeader("SCAN ITEM NAAR VOORRAAD"),
+                dbc.CardBody([
+                    dbc.Input(id='barcode-input-potjes-page7', type='text', placeholder='Vul Item Barcode in', debounce=True),
+                    html.Br(),
+                    dbc.Input(id='potjes-count-input', type='number', placeholder='Vul aantal in', min=0, debounce=True),
+                    # html.Div(id='barcode-input-status-taart-page3', className="mt-2"),  # This will display the status after checking the barcode
+                ])
+            ]),
+            
+            html.Br(),
+            
+            dbc.Card([
+                dbc.CardHeader("SCAN ITEM UIT VOORRAAD"),
+                dbc.CardBody([
+                    dbc.Input(id='barcode-output-potjes-page7', type='text', placeholder='Vul Item Barcode in', debounce=True),
+                    html.Br(),
+                    dbc.Input(id='potjes-count-output', type='number', placeholder='Vul aantal in', min=0, debounce=True),
+                    # html.Div(id='barcode-output-status-taart-page3', className="mt-2"),  # This will display the status after checking the barcode
+                ])
+            ]),
+            
+            html.Br(),
+            
+            dbc.Card([
+                dbc.CardHeader("NIEUW ITEM"),
+                dbc.CardBody([
+                    dbc.Input(id='new-potjes-barcode', type='text', placeholder='Barcode'),
+                    html.Br(),
+                    dbc.Input(id='new-potjes-description', type='text', placeholder='Omschrijving'),
+                    html.Br(),
+                    dbc.Button('Voeg item toe', id='add-potjes-button', color="success", className="mt-2", n_clicks=0),
+                    html.Div(id='add-potjes-status')
+                ])
+            ]),
+        ], width=4),
+        dbc.Col([
+            dbc.Card([
+                    dbc.CardHeader("VOORRAAD"),
+                    dbc.CardBody([
+                        html.Div(id='supply-timestamp-potjes-page7', className="mt-2"),
+                        html.Div(id='deleted-row-potjes-page7', className="mt-2"),  # This will display the status after checking the barcode
+                        dash_table.DataTable(
+                            id='stock-table-potjes',
+                            # editable=False,
+                            row_deletable=True,
+                            # filter_action='native',  # Enable filtering
+                            # sort_action='native',  # Enable sorting
+                            style_table={'overflowX': 'auto'},
+                            # page_action='none',
+                            style_cell={
+                                'minWidth': '100px', 'width': '150px', 'maxWidth': '180px',
+                                'overflow': 'hidden',
+                                'textOverflow': 'ellipsis',
+                            }
+                        )
+                    ])
+                ]),
+        ], width=6),
+    ], className="mt-3"),
+], fluid=True)
 #%%% Update the app.layout to include page routing
 app.layout = html.Div([
     dcc.Location(id='url', refresh=False),  # This tracks the URL
     dcc.Store(id='ijs-table-storage-page1',  storage_type='session'),
     dcc.Store(id='taart-table-storage-page1',  storage_type='session'),
     dcc.Store(id='diversen-table-storage-page1',  storage_type='session'),
+    dcc.Store(id='suikervrij-table-storage-page1',  storage_type='session'),
+    dcc.Store(id='gebak-table-storage-page1',  storage_type='session'),
+    dcc.Store(id='potjes-table-storage-page1',  storage_type='session'),
     html.Div(id='page-content',), # Content will be rendered in this element
 ])
 
@@ -502,6 +828,12 @@ app.layout = html.Div([
     prevent_initial_call=True
 )
 def display_page(pathname):
+    if pathname == '/potjes':
+        return page_7_layout
+    if pathname == '/gebak':
+        return page_6_layout
+    if pathname == '/suikervrij':
+        return page_5_layout
     if pathname == '/diversen':
         return page_4_layout
     elif pathname == '/taart':
@@ -512,25 +844,57 @@ def display_page(pathname):
         return page_1_layout
 
 
-#%%% CALLBACKS PAGE 1 
+#%%% CALLBACKS PAGE 1 [ALL]
 @app.callback(
-    [Output('ijs-table-page1', 'data', allow_duplicate=True),
+    [Output("ijs-header", "children"),
+     Output("taart-header", "children"),
+     Output("diversen-header", "children"),
+     Output("suikervrij-header", "children"),
+     Output("gebak-header", "children"),
+     Output("potjes-header", "children"),
+     Output('ijs-table-page1', 'data', allow_duplicate=True),
      Output('taart-table-page1', 'data', allow_duplicate=True),
-     Output('diversen-table-page1', 'data', allow_duplicate=True)],
+     Output('diversen-table-page1', 'data', allow_duplicate=True),
+     Output('suikervrij-table-page1', 'data', allow_duplicate=True),
+     Output('gebak-table-page1', 'data', allow_duplicate=True),
+     Output('potjes-table-page1', 'data', allow_duplicate=True)
+     ],
     [Input('load_last_saved_products-button', 'n_clicks'),
       State('ijs-table-storage-page1', 'data'),
       State('taart-table-storage-page1', 'data'),
-      State('diversen-table-storage-page1', 'data')],  # Triggered by the new button click
+      State('diversen-table-storage-page1', 'data'),
+      State('suikervrij-table-storage-page1', 'data'),
+      State('gebak-table-storage-page1', 'data'),
+      State('potjes-table-storage-page1', 'data')
+      ],  # Triggered by the new button click
     prevent_initial_call=True
 )
-def load_last_saved_form(n_clicks, products, taarten, diversen):
+def load_last_saved_form(n_clicks, products, taarten, diversen, suikervrij, gebak, potjes):
     # Perform some action here when the new button is clicked
     if n_clicks is not None and n_clicks > 0:
         # Your action here, for example:
-        return products, taarten, diversen
+        row_count = len(products)
+        header_products = f"IJS: {row_count} bakken"
+        
+        row_count = sum(row['Aantal'] for row in taarten) if taarten else 0
+        header_taarten = f"TAART: {row_count}"
+        
+        row_count = sum(row['Aantal'] for row in diversen) if diversen else 0
+        header_diversen = f"DIVERSEN: {row_count}"
+        
+        row_count = sum(row['Aantal'] for row in suikervrij) if suikervrij else 0
+        header_suikervrij = f"SUIKERVRIJ: {row_count}"
+        
+        row_count = sum(row['Aantal'] for row in gebak) if gebak else 0
+        header_gebak = f"GEBAK: {row_count}"
+        
+        row_count = sum(row['Aantal'] for row in potjes) if potjes else 0
+        header_potjes = f"POTJES: {row_count}"
+        
+        return header_products, header_taarten, header_diversen, header_suikervrij, header_gebak, header_potjes, products, taarten, diversen, suikervrij, gebak, potjes
     else:
         # If button is not clicked yet, return default value
-        return [], [], []
+        return ([],) * 6
 
 @app.callback(
     Output("confirm_modal", "is_open"),
@@ -550,25 +914,33 @@ def toggle_modal(clear_form_clicks, confirm_clear_clicks):
 
 @app.callback(
     [Output('ijs-table-page1', 'data',  allow_duplicate=True),
-     Output('taart-table-page1', 'data',  allow_duplicate=True),
-     Output('diversen-table-page1', 'data',  allow_duplicate=True),
-     Output('ijs-table-storage-page1', 'data',  allow_duplicate=True),
-     Output('taart-table-storage-page1', 'data',  allow_duplicate=True),
-     Output('diversen-table-storage-page1', 'data',  allow_duplicate=True) 
+      Output('taart-table-page1', 'data',  allow_duplicate=True),
+      Output('diversen-table-page1', 'data',  allow_duplicate=True),
+      Output('suikervrij-table-page1', 'data',  allow_duplicate=True),
+      Output('gebak-table-page1', 'data',  allow_duplicate=True),
+      Output('potjes-table-page1', 'data',  allow_duplicate=True),
+      Output('ijs-table-storage-page1', 'data',  allow_duplicate=True),
+      Output('taart-table-storage-page1', 'data',  allow_duplicate=True),
+      Output('diversen-table-storage-page1', 'data',  allow_duplicate=True),
+      Output('suikervrij-table-storage-page1', 'data',  allow_duplicate=True),
+      Output('gebak-table-storage-page1', 'data',  allow_duplicate=True),
+      Output('potjes-table-storage-page1', 'data',  allow_duplicate=True) 
     ],
     [Input('confirm_clear', 'n_clicks')],  # Triggered by the new button click
     prevent_initial_call=True
 )
 def clear_form(confirm_clear_clicks):
     if confirm_clear_clicks is not None and confirm_clear_clicks > 0:
-        return [], [], [], [], [], []
+        return ([],) * 12
     else:
         # Return some default values or data if needed
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return (dash.no_update,) * 12 
+
 
 #%%%% IJS
 @app.callback(
-    [Output('barcode-status-ijs-page1', 'children'),
+    [Output("ijs-header", "children", allow_duplicate=True),
+     Output('barcode-status-ijs-page1', 'children'),
      Output('ijs-table-page1', 'data', allow_duplicate=True),
      Output('ijs-table-storage-page1', 'data', allow_duplicate=True),
      Output('barcode-input-ijs-page1', 'value')],
@@ -578,6 +950,10 @@ def clear_form(confirm_clear_clicks):
     prevent_initial_call=True,
 )
 def scan_barcode_ijs_page1(_, barcode, rows):
+    
+    if rows is None:
+        rows = []  # Initialize rows as an empty list if it's None
+        
     if barcode is None:
         raise PreventUpdate  # No barcode entered, do nothing
     
@@ -635,13 +1011,17 @@ def scan_barcode_ijs_page1(_, barcode, rows):
             # The item does not exist
             alert_msg = dbc.Alert(f'Barcode {str(barcode)} not found in database.', color="danger")
     
+    row_count = len(rows)
+    header = f"IJS: {row_count} bakken"
+    
     # Close the database session
     db.close()
     
-    return alert_msg, rows, rows, None
+    return header, alert_msg, rows, rows, None
 
 @app.callback(
-    [Output('deleted-row-ijs-page1', 'children'),
+    [Output("ijs-header", "children", allow_duplicate=True),
+     Output('deleted-row-ijs-page1', 'children'),
      Output('ijs-table-storage-page1', 'data', allow_duplicate=True)],# You might need to add this component to your layout to display the deleted row information
     [Input('ijs-table-page1', 'data'),
      State('ijs-table-page1', 'data_previous')],
@@ -689,6 +1069,9 @@ def detect_deleted_row_ijs_page1(current_data, previous_data):
                     
                     db.close()
                     
+                    row_count = len(current_set)
+                    header = f"IJS: {row_count} bakken"
+                    
                     alert_msg = dbc.Alert(f"Barcode {deleted_id} updated in database; set as in stock.", color="success")
                 except Exception as e:
                     alert_msg = dbc.Alert(f"Failed to update barcode {deleted_id} in database: {str(e)}", color="danger")
@@ -698,113 +1081,124 @@ def detect_deleted_row_ijs_page1(current_data, previous_data):
         # If no rows have been deleted, return an appropriate message
         alert_msg = dbc.Alert("No rows have been deleted.", color="warning")
 
-    return alert_msg, current_data
+    return header, alert_msg, current_data
 
 #%%%% TAART
 @app.callback(
-    [Output('barcode-status-taart-page1', 'children'),
+    [Output("taart-header", "children", allow_duplicate=True),
+     Output('barcode-status-taart-page1', 'children'),
      Output('taart-table-page1', 'data', allow_duplicate=True),
      Output('taart-table-storage-page1', 'data', allow_duplicate=True),
      Output('barcode-input-taart-page1', 'value'),
      Output('taart-count-input-page1', 'value')],
-    [Input('button-input-taart-page1', 'n_clicks'),
+    [Input('taart-count-input-page1', 'n_submit'),
+     # Input('button-input-taart-page1', 'n_clicks'),
      State('barcode-input-taart-page1', 'value'),
      State('taart-count-input-page1', 'value'),
      State('taart-table-page1', 'data')],
     prevent_initial_call=True,
 )
-def scan_barcode_taart_page1(n_clicks, barcode_input, item_count_input, rows):
+def scan_barcode_taart_page1(_, barcode_input, item_count_input, rows):
     
-    if n_clicks > 0:
+    if item_count_input is None:
+        raise PreventUpdate  # No barcode entered, do nothing
+        
+    if rows is None:
+        rows = []  # Initialize rows as an empty list if it's None
+        
+    if barcode_input is None:
+        raise PreventUpdate  # No barcode entered, do nothing
+    
+    # Initialize the alert message
+    alert_msg = None
+    
+    # Create a database session using SessionLocal
+    db = SessionLocal()
+    
+    # Define the select query
+    select_query = text("SELECT [Omschrijving], [Aantal] FROM [dbo].[TAART] WHERE [Barcode] = :barcode")
+    
+    # Execute the select query using SQLAlchemy
+    result_select = db.execute(select_query, {"barcode": barcode_input}).fetchone()
+    
+    if result_select:
+        
+        # The barcode exists in the database and the item is in stock, update the status
+        alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} found in database and item was in stock.', color="success")
+        
+        # Update input table
+        if barcode_input is not None and item_count_input is not None:
             
-        if barcode_input is None:
-            raise PreventUpdate  # No barcode entered, do nothing
-        
-        # Initialize the alert message
-        alert_msg = None
-        
-        # Create a database session using SessionLocal
-        db = SessionLocal()
-        
-        # Define the select query
-        select_query = text("SELECT [Omschrijving], [Aantal] FROM [dbo].[TAART] WHERE [Barcode] = :barcode")
-        
-        # Execute the select query using SQLAlchemy
-        result_select = db.execute(select_query, {"barcode": barcode_input}).fetchone()
-        
-        if result_select:
+            update_query = text("UPDATE [dbo].[TAART] SET [Aantal] = [Aantal] - :item_count WHERE [Barcode] = :barcode")
+            result_update = db.execute(update_query, {"item_count": item_count_input, "barcode": barcode_input})
             
-            # The barcode exists in the database and the item is in stock, update the status
-            alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} found in database and item was in stock.', color="success")
-            
-            # Update input table
-            if barcode_input is not None and item_count_input is not None:
-                
-                update_query = text("UPDATE [dbo].[TAART] SET [Aantal] = [Aantal] - :item_count WHERE [Barcode] = :barcode")
-                result_update = db.execute(update_query, {"item_count": item_count_input, "barcode": barcode_input})
-                
-                # Fetch the updated row from the database
-                updated_row = db.execute(select_query, {"barcode": barcode_input}).fetchone()
+            # Fetch the updated row from the database
+            updated_row = db.execute(select_query, {"barcode": barcode_input}).fetchone()
 
-                omschrijving = updated_row[0]
+            omschrijving = updated_row[0]
+            
+            if rows:
                 
-                if rows:
-                    # Flag to keep track of whether the row was found in rows
-                    row_found = False
+                # Flag to keep track of whether the row was found in rows
+                row_found = False
+                
+                # Check if the row exists in rows
+                for row in rows:
+                    if row['Omschrijving'] == omschrijving:
+                        # Update the quantity in the existing row
+                        row['Aantal'] += item_count_input
+                        row_found = True  # Set the flag to True
                     
-                    # Check if the row exists in rows
-                    for row in rows:
-                        if row['Omschrijving'] == omschrijving:
-                            # Update the quantity in the existing row
-                            row['Aantal'] += item_count_input
-                            row_found = True  # Set the flag to True
-                        
-                    # If the row was not found in rows, add a new row
-                    if not row_found:
-                        new_row = {
-                            'Omschrijving': omschrijving,
-                            'Aantal': item_count_input,
-                        }
-                        rows.append(new_row)
-                else:
-                    # There are no existing rows, so add a new row
+                # If the row was not found in rows, add a new row
+                if not row_found:
                     new_row = {
                         'Omschrijving': omschrijving,
                         'Aantal': item_count_input,
                     }
                     rows.append(new_row)
-                    
-                # Commit changes to the database
-                db.commit()
-                
-        else:
-            # The barcode does not exist in the database or item is not in stock
-            
-            # Define the existence check query
-            exists_query = text(
-                "SELECT COUNT(*) FROM [dbo].[TAART] WHERE [Barcode] = :barcode"
-            )
-            
-            # Execute the existence check query using SQLAlchemy
-            exists = db.execute(exists_query, {"barcode": barcode_input}).fetchone()[0]
-    
-            if exists > 0:
-                # The item exists but is out of stock
-                alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} found in database but item is currently out of stock.', color="warning")
             else:
-                # The item does not exist
-                alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} not found in database.', color="danger")
+                # There are no existing rows, so add a new row
+                new_row = {
+                    'Omschrijving': omschrijving,
+                    'Aantal': item_count_input,
+                }
+                rows.append(new_row)
+                
+            # Commit changes to the database
+            db.commit()
+            
+    else:
+        # The barcode does not exist in the database or item is not in stock
         
-        # Close the database session
-        db.close()
+        # Define the existence check query
+        exists_query = text(
+            "SELECT COUNT(*) FROM [dbo].[TAART] WHERE [Barcode] = :barcode"
+        )
         
-        return alert_msg, rows, rows, None, None
+        # Execute the existence check query using SQLAlchemy
+        exists = db.execute(exists_query, {"barcode": barcode_input}).fetchone()[0]
+
+        if exists > 0:
+            # The item exists but is out of stock
+            alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} found in database but item is currently out of stock.', color="warning")
+        else:
+            # The item does not exist
+            alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} not found in database.', color="danger")
     
-    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    row_count = sum(row['Aantal'] for row in rows)
+    header = f"TAART: {row_count}"
+    
+    # Close the database session
+    db.close()
+    
+    return header, alert_msg, rows, rows, None, None
+    
+    # return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
 
 @app.callback(
-    [Output('deleted-row-taart-page1', 'children'),
+    [Output("taart-header", "children", allow_duplicate=True),
+     Output('deleted-row-taart-page1', 'children'),
      Output('taart-table-storage-page1', 'data', allow_duplicate=True)],# You might need to add this component to your layout to display the deleted row information
     [Input('taart-table-page1', 'data'),
      State('taart-table-page1', 'data_previous')],
@@ -828,7 +1222,13 @@ def detect_deleted_row_taart_page1(current_data, previous_data):
 
     # Convert the deleted rows back into a list of dictionaries to display or use elsewhere
     deleted_rows_dicts = [dict(row) for row in deleted_rows]
-
+    
+    current_count = sum(item['Aantal'] for item in current_data) if current_data else 0
+    previous_count = sum(item['Aantal'] for item in current_data) if previous_data else 0
+    
+    row_count = current_count
+    header = f"TAART: {row_count}"
+    
     # Initialize the alert message
     alert_msg = None
 
@@ -862,16 +1262,17 @@ def detect_deleted_row_taart_page1(current_data, previous_data):
         # If no rows have been deleted, return an appropriate message
         alert_msg = dbc.Alert("No rows have been deleted.", color="warning")
 
-    return alert_msg, current_data
+    return header, alert_msg, current_data
 
 #%%%% DIVERSEN
 @app.callback(
-    [Output('barcode-status-diversen-page1', 'children'),
+    [Output("diversen-header", "children", allow_duplicate=True),
+     Output('barcode-status-diversen-page1', 'children'),
      Output('diversen-table-page1', 'data', allow_duplicate=True),
      Output('diversen-table-storage-page1', 'data', allow_duplicate=True),
      Output('barcode-input-diversen-page1', 'value'),
      Output('diversen-count-input-page1', 'value')],
-    [Input('button-input-diversen-page1', 'n_clicks'),
+    [Input('diversen-count-input-page1', 'n_submit'),
      State('barcode-input-diversen-page1', 'value'),
      State('diversen-count-input-page1', 'value'),
      State('diversen-table-page1', 'data')],
@@ -879,96 +1280,103 @@ def detect_deleted_row_taart_page1(current_data, previous_data):
 )
 def scan_barcode_diversen_page1(n_clicks, barcode_input, item_count_input, rows):
     
-    if n_clicks > 0:
+    if item_count_input is None:
+        raise PreventUpdate  # No barcode entered, do nothing
+    
+    if rows is None:
+        rows = []  # Initialize rows as an empty list if it's None
+        
+    if barcode_input is None:
+        raise PreventUpdate  # No barcode entered, do nothing
+    
+    # Initialize the alert message
+    alert_msg = None
+    
+    # Create a database session using SessionLocal
+    db = SessionLocal()
+    
+    # Define the select query
+    select_query = text("SELECT [Omschrijving], [Aantal] FROM [dbo].[DIVERSEN] WHERE [Barcode] = :barcode")
+    
+    # Execute the select query using SQLAlchemy
+    result_select = db.execute(select_query, {"barcode": barcode_input}).fetchone()
+    
+    if result_select:
+        
+        # The barcode exists in the database and the item is in stock, update the status
+        alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} found in database and item was in stock.', color="success")
+        
+        # Update input table
+        if barcode_input is not None and item_count_input is not None:
             
-        if barcode_input is None:
-            raise PreventUpdate  # No barcode entered, do nothing
-        
-        # Initialize the alert message
-        alert_msg = None
-        
-        # Create a database session using SessionLocal
-        db = SessionLocal()
-        
-        # Define the select query
-        select_query = text("SELECT [Omschrijving], [Aantal] FROM [dbo].[DIVERSEN] WHERE [Barcode] = :barcode")
-        
-        # Execute the select query using SQLAlchemy
-        result_select = db.execute(select_query, {"barcode": barcode_input}).fetchone()
-        
-        if result_select:
+            update_query = text("UPDATE [dbo].[DIVERSEN] SET [Aantal] = [Aantal] - :item_count WHERE [Barcode] = :barcode")
+            result_update = db.execute(update_query, {"item_count": item_count_input, "barcode": barcode_input})
             
-            # The barcode exists in the database and the item is in stock, update the status
-            alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} found in database and item was in stock.', color="success")
+            # Fetch the updated row from the database
+            updated_row = db.execute(select_query, {"barcode": barcode_input}).fetchone()
+
+            omschrijving = updated_row[0]
             
-            # Update input table
-            if barcode_input is not None and item_count_input is not None:
+            if rows:
                 
-                update_query = text("UPDATE [dbo].[DIVERSEN] SET [Aantal] = [Aantal] - :item_count WHERE [Barcode] = :barcode")
-                result_update = db.execute(update_query, {"item_count": item_count_input, "barcode": barcode_input})
+                # Flag to keep track of whether the row was found in rows
+                row_found = False
                 
-                # Fetch the updated row from the database
-                updated_row = db.execute(select_query, {"barcode": barcode_input}).fetchone()
-                
-                omschrijving = updated_row[0]
-                
-                if rows:
-                    # Flag to keep track of whether the row was found in rows
-                    row_found = False
+                # Check if the row exists in rows
+                for row in rows:
+                    if row['Omschrijving'] == omschrijving:
+                        # Update the quantity in the existing row
+                        row['Aantal'] += item_count_input
+                        row_found = True  # Set the flag to True
                     
-                    # Check if the row exists in rows
-                    for row in rows:
-                        if row['Omschrijving'] == omschrijving:
-                            # Update the quantity in the existing row
-                            row['Aantal'] += item_count_input
-                            row_found = True  # Set the flag to True
-                        
-                    # If the row was not found in rows, add a new row
-                    if not row_found:
-                        new_row = {
-                            'Omschrijving': omschrijving,
-                            'Aantal': item_count_input,
-                        }
-                        rows.append(new_row)
-                else:
-                    # There are no existing rows, so add a new row
+                # If the row was not found in rows, add a new row
+                if not row_found:
                     new_row = {
                         'Omschrijving': omschrijving,
                         'Aantal': item_count_input,
                     }
                     rows.append(new_row)
-                
-                # Commit changes to the database
-                db.commit()
-                
-        else:
-            # The barcode does not exist in the database or item is not in stock
-            
-            # Define the existence check query
-            exists_query = text(
-                "SELECT COUNT(*) FROM [dbo].[DIVERSEN] WHERE [Barcode] = :barcode"
-            )
-            
-            # Execute the existence check query using SQLAlchemy
-            exists = db.execute(exists_query, {"barcode": barcode_input}).fetchone()[0]
-    
-            if exists > 0:
-                # The item exists but is out of stock
-                alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} found in database but item is currently out of stock.', color="warning")
             else:
-                # The item does not exist
-                alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} not found in database.', color="danger")
+                # There are no existing rows, so add a new row
+                new_row = {
+                    'Omschrijving': omschrijving,
+                    'Aantal': item_count_input,
+                }
+                rows.append(new_row)
+                
+            # Commit changes to the database
+            db.commit()
+            
+    else:
+        # The barcode does not exist in the database or item is not in stock
         
-        # Close the database session
-        db.close()
+        # Define the existence check query
+        exists_query = text(
+            "SELECT COUNT(*) FROM [dbo].[DIVERSEN] WHERE [Barcode] = :barcode"
+        )
         
-        return alert_msg, rows, rows, None, None
-    
-    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        # Execute the existence check query using SQLAlchemy
+        exists = db.execute(exists_query, {"barcode": barcode_input}).fetchone()[0]
 
+        if exists > 0:
+            # The item exists but is out of stock
+            alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} found in database but item is currently out of stock.', color="warning")
+        else:
+            # The item does not exist
+            alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} not found in database.', color="danger")
+    
+    row_count = sum(row['Aantal'] for row in rows)
+    header = f"DIVERSEN: {row_count}"
+    
+    # Close the database session
+    db.close()
+    
+    return header, alert_msg, rows, rows, None, None
+    
 
 @app.callback(
-    [Output('deleted-row-diversen-page1', 'children'),
+    [Output("diversen-header", "children", allow_duplicate=True),
+     Output('deleted-row-diversen-page1', 'children'),
      Output('diversen-table-storage-page1', 'data', allow_duplicate=True)],# You might need to add this component to your layout to display the deleted row information
     [Input('diversen-table-page1', 'data'),
      State('diversen-table-page1', 'data_previous')],
@@ -992,7 +1400,13 @@ def detect_deleted_row_diversen_page1(current_data, previous_data):
 
     # Convert the deleted rows back into a list of dictionaries to display or use elsewhere
     deleted_rows_dicts = [dict(row) for row in deleted_rows]
-
+    
+    current_count = sum(item['Aantal'] for item in current_data) if current_data else 0
+    previous_count = sum(item['Aantal'] for item in current_data) if previous_data else 0
+    
+    row_count = current_count
+    header = f"DIVERSEN: {row_count}"
+    
     # Initialize the alert message
     alert_msg = None
 
@@ -1026,36 +1440,576 @@ def detect_deleted_row_diversen_page1(current_data, previous_data):
         # If no rows have been deleted, return an appropriate message
         alert_msg = dbc.Alert("No rows have been deleted.", color="warning")
 
-    return alert_msg, current_data
+    return header, alert_msg, current_data
+
+#%%%% SUIKERVRIJ
+@app.callback(
+    [Output("suikervrij-header", "children", allow_duplicate=True),
+     Output('barcode-status-suikervrij-page1', 'children'),
+     Output('suikervrij-table-page1', 'data', allow_duplicate=True),
+     Output('suikervrij-table-storage-page1', 'data', allow_duplicate=True),
+     Output('barcode-input-suikervrij-page1', 'value'),
+     Output('suikervrij-count-input-page1', 'value')],
+    [Input('suikervrij-count-input-page1', 'n_submit'),
+     State('barcode-input-suikervrij-page1', 'value'),
+     State('suikervrij-count-input-page1', 'value'),
+     State('suikervrij-table-page1', 'data')],
+    prevent_initial_call=True,
+)
+def scan_barcode_suikervrij_page1(n_clicks, barcode_input, item_count_input, rows):
+    
+    if item_count_input is None:
+        raise PreventUpdate  # No barcode entered, do nothing
+    
+    if rows is None:
+        rows = []  # Initialize rows as an empty list if it's None
+        
+    if barcode_input is None:
+        raise PreventUpdate  # No barcode entered, do nothing
+    
+    # Initialize the alert message
+    alert_msg = None
+    
+    # Create a database session using SessionLocal
+    db = SessionLocal()
+    
+    # Define the select query
+    select_query = text("SELECT [Omschrijving], [Aantal] FROM [dbo].[SUIKERVRIJ] WHERE [Barcode] = :barcode")
+    
+    # Execute the select query using SQLAlchemy
+    result_select = db.execute(select_query, {"barcode": barcode_input}).fetchone()
+    
+    if result_select:
+        
+        # The barcode exists in the database and the item is in stock, update the status
+        alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} found in database and item was in stock.', color="success")
+        
+        # Update input table
+        if barcode_input is not None and item_count_input is not None:
+            
+            update_query = text("UPDATE [dbo].[SUIKERVRIJ] SET [Aantal] = [Aantal] - :item_count WHERE [Barcode] = :barcode")
+            result_update = db.execute(update_query, {"item_count": item_count_input, "barcode": barcode_input})
+            
+            # Fetch the updated row from the database
+            updated_row = db.execute(select_query, {"barcode": barcode_input}).fetchone()
+
+            omschrijving = updated_row[0]
+            
+            if rows:
+                
+                # Flag to keep track of whether the row was found in rows
+                row_found = False
+                
+                # Check if the row exists in rows
+                for row in rows:
+                    if row['Omschrijving'] == omschrijving:
+                        # Update the quantity in the existing row
+                        row['Aantal'] += item_count_input
+                        row_found = True  # Set the flag to True
+                    
+                # If the row was not found in rows, add a new row
+                if not row_found:
+                    new_row = {
+                        'Omschrijving': omschrijving,
+                        'Aantal': item_count_input,
+                    }
+                    rows.append(new_row)
+            else:
+                # There are no existing rows, so add a new row
+                new_row = {
+                    'Omschrijving': omschrijving,
+                    'Aantal': item_count_input,
+                }
+                rows.append(new_row)
+                
+            # Commit changes to the database
+            db.commit()
+            
+    else:
+        # The barcode does not exist in the database or item is not in stock
+        
+        # Define the existence check query
+        exists_query = text(
+            "SELECT COUNT(*) FROM [dbo].[SUIKERVRIJ] WHERE [Barcode] = :barcode"
+        )
+        
+        # Execute the existence check query using SQLAlchemy
+        exists = db.execute(exists_query, {"barcode": barcode_input}).fetchone()[0]
+
+        if exists > 0:
+            # The item exists but is out of stock
+            alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} found in database but item is currently out of stock.', color="warning")
+        else:
+            # The item does not exist
+            alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} not found in database.', color="danger")
+    
+    row_count = sum(row['Aantal'] for row in rows)
+    header = f"SUIKERVRIJ: {row_count}"
+    
+    # Close the database session
+    db.close()
+    
+    return header, alert_msg, rows, rows, None, None
+    
+@app.callback(
+    [Output("suikervrij-header", "children", allow_duplicate=True),
+     Output('deleted-row-suikervrij-page1', 'children'),
+     Output('suikervrij-table-storage-page1', 'data', allow_duplicate=True)],# You might need to add this component to your layout to display the deleted row information
+    [Input('suikervrij-table-page1', 'data'),
+     State('suikervrij-table-page1', 'data_previous')],
+    prevent_initial_call=True,
+)
+def detect_deleted_row_suikervrij_page1(current_data, previous_data):
+    if not dash.callback_context.triggered:
+        # This is the initial load, no data has been deleted
+        raise PreventUpdate
+
+    if previous_data is None:
+        # This can happen if there's no previous data to compare against
+        raise PreventUpdate
+
+    # Convert both lists of dictionaries (current and previous data) into sets of tuples for comparison
+    current_set = {tuple(d.items()) for d in current_data} if current_data else set()
+    previous_set = {tuple(d.items()) for d in previous_data} if previous_data else set()
+
+    # Find the difference between the two sets; this will be the deleted row(s)
+    deleted_rows = previous_set - current_set
+
+    # Convert the deleted rows back into a list of dictionaries to display or use elsewhere
+    deleted_rows_dicts = [dict(row) for row in deleted_rows]
+    
+    current_count = sum(item['Aantal'] for item in current_data) if current_data else 0
+    previous_count = sum(item['Aantal'] for item in current_data) if previous_data else 0
+    
+    row_count = current_count
+    header = f"SUIKERVRIJ: {row_count}"
+    
+    # Initialize the alert message
+    alert_msg = None
+
+    if deleted_rows_dicts:
+        # If there are deleted rows, process each one
+        for deleted_row in deleted_rows_dicts:
+            # Extract the ID of the deleted row
+            deleted_id = deleted_row.get('Omschrijving', None)
+            deleted_amount = deleted_row.get('Aantal', None)
+            # print(deleted_id)
+            if deleted_id:
+                # Connect to the database and update the InStock status
+                try:
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    delete_query = text("UPDATE [dbo].[SUIKERVRIJ] SET [Aantal] = [Aantal] + :deleted_amount WHERE [Omschrijving] = :deleted_id")
+                    db.execute(delete_query, {"deleted_amount": deleted_amount, "deleted_id": deleted_id})
+                    
+                    # Commit changes to the database
+                    db.commit()
+                    
+                    db.close()
+                    
+                    alert_msg = dbc.Alert(f"Barcode {deleted_id} updated in database; set as in stock.", color="success")
+                except Exception as e:
+                    alert_msg = dbc.Alert(f"Failed to update barcode {deleted_id} in database: {str(e)}", color="danger")
+            else:
+               alert_msg = dbc.Alert("Deleted row did not have a valid ID.", color="danger")
+    else:
+        # If no rows have been deleted, return an appropriate message
+        alert_msg = dbc.Alert("No rows have been deleted.", color="warning")
+
+    return header, alert_msg, current_data
+
+#%%%% GEBAK
+@app.callback(
+    [Output("gebak-header", "children", allow_duplicate=True),
+     Output('barcode-status-gebak-page1', 'children'),
+     Output('gebak-table-page1', 'data', allow_duplicate=True),
+     Output('gebak-table-storage-page1', 'data', allow_duplicate=True),
+     Output('barcode-input-gebak-page1', 'value'),
+     Output('gebak-count-input-page1', 'value')],
+    [Input('gebak-count-input-page1', 'n_submit'),
+     State('barcode-input-gebak-page1', 'value'),
+     State('gebak-count-input-page1', 'value'),
+     State('gebak-table-page1', 'data')],
+    prevent_initial_call=True,
+)
+def scan_barcode_gebak_page1(n_clicks, barcode_input, item_count_input, rows):
+    
+    if item_count_input is None:
+        raise PreventUpdate  # No barcode entered, do nothing
+        
+    if rows is None:
+        rows = []  # Initialize rows as an empty list if it's None
+        
+    if barcode_input is None:
+        raise PreventUpdate  # No barcode entered, do nothing
+    
+    # Initialize the alert message
+    alert_msg = None
+    
+    # Create a database session using SessionLocal
+    db = SessionLocal()
+    
+    # Define the select query
+    select_query = text("SELECT [Omschrijving], [Aantal] FROM [dbo].[GEBAK] WHERE [Barcode] = :barcode")
+    
+    # Execute the select query using SQLAlchemy
+    result_select = db.execute(select_query, {"barcode": barcode_input}).fetchone()
+    
+    if result_select:
+        
+        # The barcode exists in the database and the item is in stock, update the status
+        alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} found in database and item was in stock.', color="success")
+        
+        # Update input table
+        if barcode_input is not None and item_count_input is not None:
+            
+            update_query = text("UPDATE [dbo].[GEBAK] SET [Aantal] = [Aantal] - :item_count WHERE [Barcode] = :barcode")
+            result_update = db.execute(update_query, {"item_count": item_count_input, "barcode": barcode_input})
+            
+            # Fetch the updated row from the database
+            updated_row = db.execute(select_query, {"barcode": barcode_input}).fetchone()
+
+            omschrijving = updated_row[0]
+            
+            if rows:
+                
+                # Flag to keep track of whether the row was found in rows
+                row_found = False
+                
+                # Check if the row exists in rows
+                for row in rows:
+                    if row['Omschrijving'] == omschrijving:
+                        # Update the quantity in the existing row
+                        row['Aantal'] += item_count_input
+                        row_found = True  # Set the flag to True
+                    
+                # If the row was not found in rows, add a new row
+                if not row_found:
+                    new_row = {
+                        'Omschrijving': omschrijving,
+                        'Aantal': item_count_input,
+                    }
+                    rows.append(new_row)
+            else:
+                # There are no existing rows, so add a new row
+                new_row = {
+                    'Omschrijving': omschrijving,
+                    'Aantal': item_count_input,
+                }
+                rows.append(new_row)
+                
+            # Commit changes to the database
+            db.commit()
+            
+    else:
+        # The barcode does not exist in the database or item is not in stock
+        
+        # Define the existence check query
+        exists_query = text(
+            "SELECT COUNT(*) FROM [dbo].[GEBAK] WHERE [Barcode] = :barcode"
+        )
+        
+        # Execute the existence check query using SQLAlchemy
+        exists = db.execute(exists_query, {"barcode": barcode_input}).fetchone()[0]
+
+        if exists > 0:
+            # The item exists but is out of stock
+            alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} found in database but item is currently out of stock.', color="warning")
+        else:
+            # The item does not exist
+            alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} not found in database.', color="danger")
+    
+    row_count = sum(row['Aantal'] for row in rows)
+    header = f"GEBAK: {row_count}"
+    
+    # Close the database session
+    db.close()
+    
+    return header, alert_msg, rows, rows, None, None
+    
+
+@app.callback(
+    [Output("gebak-header", "children", allow_duplicate=True),
+     Output('deleted-row-gebak-page1', 'children'),
+     Output('gebak-table-storage-page1', 'data', allow_duplicate=True)],# You might need to add this component to your layout to display the deleted row information
+    [Input('gebak-table-page1', 'data'),
+     State('gebak-table-page1', 'data_previous')],
+    prevent_initial_call=True,
+)
+def detect_deleted_row_gebak_page1(current_data, previous_data):
+    if not dash.callback_context.triggered:
+        # This is the initial load, no data has been deleted
+        raise PreventUpdate
+
+    if previous_data is None:
+        # This can happen if there's no previous data to compare against
+        raise PreventUpdate
+
+    # Convert both lists of dictionaries (current and previous data) into sets of tuples for comparison
+    current_set = {tuple(d.items()) for d in current_data} if current_data else set()
+    previous_set = {tuple(d.items()) for d in previous_data} if previous_data else set()
+
+    # Find the difference between the two sets; this will be the deleted row(s)
+    deleted_rows = previous_set - current_set
+
+    # Convert the deleted rows back into a list of dictionaries to display or use elsewhere
+    deleted_rows_dicts = [dict(row) for row in deleted_rows]
+    
+    current_count = sum(item['Aantal'] for item in current_data) if current_data else 0
+    previous_count = sum(item['Aantal'] for item in current_data) if previous_data else 0
+    
+    row_count = current_count
+    header = f"GEBAK: {row_count}"
+    
+    # Initialize the alert message
+    alert_msg = None
+
+    if deleted_rows_dicts:
+        # If there are deleted rows, process each one
+        for deleted_row in deleted_rows_dicts:
+            # Extract the ID of the deleted row
+            deleted_id = deleted_row.get('Omschrijving', None)
+            deleted_amount = deleted_row.get('Aantal', None)
+            # print(deleted_id)
+            if deleted_id:
+                # Connect to the database and update the InStock status
+                try:
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    delete_query = text("UPDATE [dbo].[GEBAK] SET [Aantal] = [Aantal] + :deleted_amount WHERE [Omschrijving] = :deleted_id")
+                    db.execute(delete_query, {"deleted_amount": deleted_amount, "deleted_id": deleted_id})
+                    
+                    # Commit changes to the database
+                    db.commit()
+                    
+                    db.close()
+                    
+                    alert_msg = dbc.Alert(f"Barcode {deleted_id} updated in database; set as in stock.", color="success")
+                except Exception as e:
+                    alert_msg = dbc.Alert(f"Failed to update barcode {deleted_id} in database: {str(e)}", color="danger")
+            else:
+               alert_msg = dbc.Alert("Deleted row did not have a valid ID.", color="danger")
+    else:
+        # If no rows have been deleted, return an appropriate message
+        alert_msg = dbc.Alert("No rows have been deleted.", color="warning")
+
+    return header, alert_msg, current_data
+
+#%%%% POTJES
+@app.callback(
+    [Output("potjes-header", "children", allow_duplicate=True),
+     Output('barcode-status-potjes-page1', 'children'),
+     Output('potjes-table-page1', 'data', allow_duplicate=True),
+     Output('potjes-table-storage-page1', 'data', allow_duplicate=True),
+     Output('barcode-input-potjes-page1', 'value'),
+     Output('potjes-count-input-page1', 'value')],
+    [Input('potjes-count-input-page1', 'n_submit'),
+     State('barcode-input-potjes-page1', 'value'),
+     State('potjes-count-input-page1', 'value'),
+     State('potjes-table-page1', 'data')],
+    prevent_initial_call=True,
+)
+def scan_barcode_potjes_page1(n_clicks, barcode_input, item_count_input, rows):
+    
+    if item_count_input is None:
+        raise PreventUpdate  # No barcode entered, do nothing
+    
+    if rows is None:
+        rows = []  # Initialize rows as an empty list if it's None
+        
+    if barcode_input is None:
+        raise PreventUpdate  # No barcode entered, do nothing
+    
+    # Initialize the alert message
+    alert_msg = None
+    
+    # Create a database session using SessionLocal
+    db = SessionLocal()
+    
+    # Define the select query
+    select_query = text("SELECT [Omschrijving], [Aantal] FROM [dbo].[POTJES] WHERE [Barcode] = :barcode")
+    
+    # Execute the select query using SQLAlchemy
+    result_select = db.execute(select_query, {"barcode": barcode_input}).fetchone()
+    
+    if result_select:
+        
+        # The barcode exists in the database and the item is in stock, update the status
+        alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} found in database and item was in stock.', color="success")
+        
+        # Update input table
+        if barcode_input is not None and item_count_input is not None:
+            
+            update_query = text("UPDATE [dbo].[POTJES] SET [Aantal] = [Aantal] - :item_count WHERE [Barcode] = :barcode")
+            result_update = db.execute(update_query, {"item_count": item_count_input, "barcode": barcode_input})
+            
+            # Fetch the updated row from the database
+            updated_row = db.execute(select_query, {"barcode": barcode_input}).fetchone()
+
+            omschrijving = updated_row[0]
+            
+            if rows:
+                
+                # Flag to keep track of whether the row was found in rows
+                row_found = False
+                
+                # Check if the row exists in rows
+                for row in rows:
+                    if row['Omschrijving'] == omschrijving:
+                        # Update the quantity in the existing row
+                        row['Aantal'] += item_count_input
+                        row_found = True  # Set the flag to True
+                    
+                # If the row was not found in rows, add a new row
+                if not row_found:
+                    new_row = {
+                        'Omschrijving': omschrijving,
+                        'Aantal': item_count_input,
+                    }
+                    rows.append(new_row)
+            else:
+                # There are no existing rows, so add a new row
+                new_row = {
+                    'Omschrijving': omschrijving,
+                    'Aantal': item_count_input,
+                }
+                rows.append(new_row)
+                
+            # Commit changes to the database
+            db.commit()
+            
+    else:
+        # The barcode does not exist in the database or item is not in stock
+        
+        # Define the existence check query
+        exists_query = text(
+            "SELECT COUNT(*) FROM [dbo].[POTJES] WHERE [Barcode] = :barcode"
+        )
+        
+        # Execute the existence check query using SQLAlchemy
+        exists = db.execute(exists_query, {"barcode": barcode_input}).fetchone()[0]
+
+        if exists > 0:
+            # The item exists but is out of stock
+            alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} found in database but item is currently out of stock.', color="warning")
+        else:
+            # The item does not exist
+            alert_msg = dbc.Alert(f'Barcode {str(barcode_input)} not found in database.', color="danger")
+    
+    row_count = sum(row['Aantal'] for row in rows)
+    header = f"POTJES: {row_count}"
+    
+    # Close the database session
+    db.close()
+    
+    return header, alert_msg, rows, rows, None, None
+    
+@app.callback(
+    [Output("potjes-header", "children", allow_duplicate=True),
+     Output('deleted-row-potjes-page1', 'children'),
+     Output('potjes-table-storage-page1', 'data', allow_duplicate=True)],# You might need to add this component to your layout to display the deleted row information
+    [Input('potjes-table-page1', 'data'),
+     State('potjes-table-page1', 'data_previous')],
+    prevent_initial_call=True,
+)
+def detect_deleted_row_potjes_page1(current_data, previous_data):
+    if not dash.callback_context.triggered:
+        # This is the initial load, no data has been deleted
+        raise PreventUpdate
+
+    if previous_data is None:
+        # This can happen if there's no previous data to compare against
+        raise PreventUpdate
+
+    # Convert both lists of dictionaries (current and previous data) into sets of tuples for comparison
+    current_set = {tuple(d.items()) for d in current_data} if current_data else set()
+    previous_set = {tuple(d.items()) for d in previous_data} if previous_data else set()
+
+    # Find the difference between the two sets; this will be the deleted row(s)
+    deleted_rows = previous_set - current_set
+
+    # Convert the deleted rows back into a list of dictionaries to display or use elsewhere
+    deleted_rows_dicts = [dict(row) for row in deleted_rows]
+    
+    current_count = sum(item['Aantal'] for item in current_data) if current_data else 0
+    previous_count = sum(item['Aantal'] for item in current_data) if previous_data else 0
+    
+    row_count = current_count
+    header = f"POTJES: {row_count}"
+    
+    # Initialize the alert message
+    alert_msg = None
+
+    if deleted_rows_dicts:
+        # If there are deleted rows, process each one
+        for deleted_row in deleted_rows_dicts:
+            # Extract the ID of the deleted row
+            deleted_id = deleted_row.get('Omschrijving', None)
+            deleted_amount = deleted_row.get('Aantal', None)
+            # print(deleted_id)
+            if deleted_id:
+                # Connect to the database and update the InStock status
+                try:
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    delete_query = text("UPDATE [dbo].[POTJES] SET [Aantal] = [Aantal] + :deleted_amount WHERE [Omschrijving] = :deleted_id")
+                    db.execute(delete_query, {"deleted_amount": deleted_amount, "deleted_id": deleted_id})
+                    
+                    # Commit changes to the database
+                    db.commit()
+                    
+                    db.close()
+                    
+                    alert_msg = dbc.Alert(f"Barcode {deleted_id} updated in database; set as in stock.", color="success")
+                except Exception as e:
+                    alert_msg = dbc.Alert(f"Failed to update barcode {deleted_id} in database: {str(e)}", color="danger")
+            else:
+               alert_msg = dbc.Alert("Deleted row did not have a valid ID.", color="danger")
+    else:
+        # If no rows have been deleted, return an appropriate message
+        alert_msg = dbc.Alert("No rows have been deleted.", color="warning")
+
+    return header, alert_msg, current_data
 
 #%%%% GENERATE PAKBON PDF
 # Combined Callback for generating and mailing pdf
 @callback(
-    [Output('pdf-generation-status', 'children'),  # For the status message
+    [Output('note', 'value'),
+     Output('pdf-generation-status', 'children'),  # For the status message
      Output('ijs-table-page1', 'data', allow_duplicate=True),
      Output('taart-table-page1', 'data', allow_duplicate=True),
-     Output('diversen-table-page1', 'data', allow_duplicate=True)],  # To clear the table data
+     Output('diversen-table-page1', 'data', allow_duplicate=True),
+     Output('suikervrij-table-page1', 'data', allow_duplicate=True),
+     Output('gebak-table-page1', 'data', allow_duplicate=True),
+     Output('potjes-table-page1', 'data', allow_duplicate=True),
+     ],  # To clear the table data
     [Input('generate-pdf-button', 'n_clicks')],
     [State('store-dropdown', 'value'),
      State('ijs-table-page1', 'data'),
      State('taart-table-page1', 'data'),
      State('diversen-table-page1', 'data'),
+     State('suikervrij-table-page1', 'data'),
+     State('gebak-table-page1', 'data'),
+     State('potjes-table-page1', 'data'),
      State('note', 'value')],
     prevent_initial_call=True, # Prevents the callback from running when the page loads
 )
-def generate_and_email_pdf(n_clicks, store, products, taarten, diversen, note):
+def generate_and_email_pdf(n_clicks, store, products, taarten, diversen, suikervrij, gebak, potjes, note):
     
     if n_clicks is None or n_clicks == 0:
         raise PreventUpdate
     
-    if not any([products, taarten, diversen]):
-        return dbc.Alert("Please add products before generating a PDF.", color="warning"), [], [], []
+    if not any([products, taarten, diversen, suikervrij, gebak, potjes]):
+        return None, dbc.Alert("Please add products before generating a PDF.", color="warning"), [], [], [], [], [], []
     
     if n_clicks is not None and n_clicks > 0:
         
         store_label = next((item['label'] for item in stores if item['value'] == store), None)
         if not store_label:
-            return dbc.Alert("Please select a store.", color="danger"), products, taarten, diversen  # Return None for the table data
+            return None, dbc.Alert("Please select a store.", color="danger"), products, taarten, diversen, suikervrij, gebak, potjes
     
         # Get the current date
         current_datetime = datetime.datetime.now()
@@ -1099,7 +2053,13 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen, note):
         elements.append(description)
         # elements.append(Spacer(1, 5))  # Space between description and table
     
-        tables = [(products, "IJS"), (taarten, "TAARTEN"), (diversen, "DIVERSEN")]
+        tables = [(products, "IJS"), 
+                  (taarten, "TAART"), 
+                  (diversen, "DIVERSEN"),
+                  (suikervrij, "SUIKERVRIJ"),
+                  (gebak, "GEBAK"),
+                  (potjes, "POTJES"),
+                  ]
     
         for table in tables:
     
@@ -1109,17 +2069,69 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen, note):
             if table_data:
                 
                 title = Paragraph(table_name, styles['Heading2'])
-                elements.append(title)
+                
+                special_count = None
                 
                 if table_name == "IJS":
                     # Setting up the table for product listing
                     data = [['Barcode', 'Type', 'Omschrijving', 'Gewicht [kg]']] + [[p['Barcode'], p['Type'], p['Omschrijving'], p['Gewicht [kg]']] for p in table_data]
                     table = Table(data, colWidths=[100, 60, 150, 75])  # Specify column widths as needed
+                    
+                    # Calculate totals for each type
+                    # Initialize dictionaries to store totals
+                    type_count = {}
+                    type_weight = {}
+                    
+                    if products:
+                        for product in products:
+                            product_type = product['Type'].lower()
+                            if product_type not in type_count:
+                                type_count[product_type] = 1
+                                type_weight[product_type] = product['Gewicht [kg]']
+                            else:
+                                type_count[product_type] += 1
+                                type_weight[product_type] += product['Gewicht [kg]']
+                        
+                        # Add totals table to the PDF
+                        type_totals_data = [['Type', 'Aantal', 'Totaal Gewicht [kg]']]
+                        for product_type, count in type_count.items():
+                            type_totals_data.append([product_type, count, round(type_weight[product_type], 2)])
+                        
+                        # Adding a paragraph to describe the totals table
+                        total_products = len(products)
+                        table_total_footer = Paragraph(f'Totaal {table_name}: {total_products}', styles['Heading3'])
+                        totals_description = Paragraph("", styles['Heading2'])
+                   
+                        # Setting up the table for totals
+                        totals_table = Table(type_totals_data, colWidths=[100, 60, 100])  # Specify column widths as needed
+                        totals_table.setStyle(TableStyle([
+                            ('BACKGROUND', (0, 0), (-1, 0), colors.white),
+                            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                            ('ALIGNMENT', (0, 0), (-1, -1), 'LEFT'),  # Align text to the left
+                            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                            ('BOX', (0, 0), (-1, -1), 2, colors.black),
+                        ]))
+                        totals_table.hAlign = 'LEFT'  # Options are 'LEFT', 'CENTER', 'RIGHT'
+                        totals_table_pack = KeepTogether([totals_description, totals_table, table_total_footer])
+                        
                 else:
+                    
                     # Setting up the table for product listing
                     data = [['Omschrijving', 'Aantal']] + [[p['Omschrijving'], p['Aantal']] for p in table_data]
-                    table = Table(data, colWidths=[100, 150])  # Specify column widths as needed
-            
+                    table = Table(data, colWidths=[150, 60])  # Specify column widths as needed
+                    
+                    table_total = sum(item['Aantal'] for item in table_data)
+                    # table_total_footer = Paragraph(f'Totaal {table_name}: {table_total}', styles['Heading3'])
+                    
+                    if table_name == "TAART":
+                        special_count = next((item['Aantal'] for item in table_data if 'Speciaal bestelde ijstaart' in item['Omschrijving']), None)
+                        
+                        special_table_total_footer = Paragraph(f'Totaal SPECIAL {table_name}: {special_count}', styles['Heading3'])
+                    
+                    table_total = table_total - special_count if special_count else table_total
+                    table_total_footer = Paragraph(f'Totaal {table_name}: {table_total}', styles['Heading3'])
+                        
                 table.setStyle(TableStyle([
                     ('BACKGROUND', (0, 0), (-1, 0), colors.white),
                     ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
@@ -1129,87 +2141,70 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen, note):
                     ('BOX', (0,0), (-1,-1), 2, colors.black),
                 ]))
                 table.hAlign = 'LEFT'  # Options are 'LEFT', 'CENTER', 'RIGHT'
-                elements.append(table)
-                # elements.append(Spacer(1, 10))
+                
+                if table_name == "IJS":
+                    table_pack = KeepTogether([title, table])
+                else:
+                    table_pack = KeepTogether([title, table, table_total_footer, special_table_total_footer]) if special_count else KeepTogether([title, table, table_total_footer])
+                
+                elements.append(table_pack)
+                
+                if table_name == "IJS":
+                    elements.append(totals_table_pack)
                 
         # IJS
-        # Initialize dictionaries to store totals
-        type_count = {}
-        type_weight = {}
+        # # Initialize dictionaries to store totals
+        # type_count = {}
+        # type_weight = {}
         
-        # Calculate totals for each type
-        if products:
-            for product in products:
-                product_type = product['Type']
-                if product_type not in type_count:
-                    type_count[product_type] = 1
-                    type_weight[product_type] = product['Gewicht [kg]']
-                else:
-                    type_count[product_type] += 1
-                    type_weight[product_type] += product['Gewicht [kg]']
+        # # Calculate totals for each type
+        # if products:
+        #     for product in products:
+        #         product_type = product['Type'].lower()
+        #         if product_type not in type_count:
+        #             type_count[product_type] = 1
+        #             type_weight[product_type] = product['Gewicht [kg]']
+        #         else:
+        #             type_count[product_type] += 1
+        #             type_weight[product_type] += product['Gewicht [kg]']
             
-            # Add totals table to the PDF
-            type_totals_data = [['Type', 'Aantal', 'Totaal Gewicht [kg]']]
-            for product_type, count in type_count.items():
-                type_totals_data.append([product_type, count, type_weight[product_type]])
+        #     # Add totals table to the PDF
+        #     type_totals_data = [['Type', 'Aantal', 'Totaal Gewicht [kg]']]
+        #     for product_type, count in type_count.items():
+        #         type_totals_data.append([product_type, count, round(type_weight[product_type], 2)])
             
-            # Adding a paragraph to describe the totals table
-            totals_description = Paragraph("IJS TOTAAL", styles['Heading2'])
-            elements.append(totals_description)
+        #     # Adding a paragraph to describe the totals table
+        #     total_products = len(products)
+        #     table_total_footer = Paragraph(f'Totaal IJS: {total_products}', styles['Heading3'])
+        #     totals_description = Paragraph(f"IJS TOTAAL", styles['Heading2'])
+        #     # elements.append(totals_description)
             
-            # Setting up the table for totals
-            totals_table = Table(type_totals_data, colWidths=[100, 60, 100])  # Specify column widths as needed
-            totals_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.white),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-                ('ALIGNMENT', (0, 0), (-1, -1), 'LEFT'),  # Align text to the left
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                ('BOX', (0, 0), (-1, -1), 2, colors.black),
-            ]))
-            totals_table.hAlign = 'LEFT'  # Options are 'LEFT', 'CENTER', 'RIGHT'
-            elements.append(totals_table)
-        
-        # for table in [(taarten, "TAARTEN"), (diversen, "DIVERSEN")]:
+        #     # Setting up the table for totals
+        #     totals_table = Table(type_totals_data, colWidths=[100, 60, 100])  # Specify column widths as needed
+        #     totals_table.setStyle(TableStyle([
+        #         ('BACKGROUND', (0, 0), (-1, 0), colors.white),
+        #         ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+        #         ('ALIGNMENT', (0, 0), (-1, -1), 'LEFT'),  # Align text to the left
+        #         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        #         ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        #         ('BOX', (0, 0), (-1, -1), 2, colors.black),
+        #     ]))
+        #     totals_table.hAlign = 'LEFT'  # Options are 'LEFT', 'CENTER', 'RIGHT'
+        #     totals_table_pack = KeepTogether([totals_description, totals_table, table_total_footer])
             
-        #     items = table[0]
-        #     name = table[1]
-            
-        #     if items:
-                
-        #         # Add totals table to the PDF
-        #         items_totals_data = [['Omschrijving', 'Aantal']]
-        #         for item_omschrijving, count in items:
-        #             items_totals_data.append([item_omschrijving, count])
-                
-        #         # Adding a paragraph to describe the totals table
-        #         totals_description = Paragraph(f"{name} TOTAAL", styles['Heading2'])
-        #         elements.append(totals_description)
-                
-        #         # Setting up the table for totals
-        #         totals_table = Table(items_totals_data, colWidths=[100, 60, 100])  # Specify column widths as needed
-        #         totals_table.setStyle(TableStyle([
-        #             ('BACKGROUND', (0, 0), (-1, 0), colors.white),
-        #             ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-        #             ('ALIGNMENT', (0, 0), (-1, -1), 'LEFT'),  # Align text to the left
-        #             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        #             ('GRID', (0, 0), (-1, -1), 1, colors.black),
-        #             ('BOX', (0, 0), (-1, -1), 2, colors.black),
-        #         ]))
-        #         totals_table.hAlign = 'LEFT'  # Options are 'LEFT', 'CENTER', 'RIGHT'
-        #         elements.append(totals_table)
+            # elements.append(totals_table_pack)
         
         # Add note to the PDF
         if note:
             note_header = Paragraph('Opmerking', styles['Heading3'])
             note_paragraph = Paragraph(f'{note}', styles['BodyText'])
-            elements.append(note_header)
-            elements.append(note_paragraph)
+            note_complete = KeepTogether([note_header, note_paragraph])
+            elements.append(note_complete)
             
         # Build the PDF
         doc.build(elements)
     
-        if store and (products or taarten or diversen):
+        if store and (products or taarten or diversen or suikervrij or gebak or potjes):
 
             # Move the file
             try:
@@ -1256,10 +2251,10 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen, note):
                 upload_pdf_to_drive(destination_path)
 
                 # Return success message and empty the table
-                return dbc.Alert(f"Pakbon {store_label} {formatted_date1} generated and uploaded to the app!", color="success"), [], [], []
+                return None, dbc.Alert(f"Pakbon {store_label} {formatted_date1} generated and uploaded to the app!", color="success"), [], [], [], [], [], []
             except Exception as e:
                 # Return error message and keep the table data unchanged
-                return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), [], [], []
+                return None, dbc.Alert(f"An error occurred: {str(e)}", color="danger"), [], [], [], [], [], []
         else:
             # Alerts for missing information, keep the table data unchanged
             alert_msg = "Please select a store and add products before generating a Pakbon."
@@ -1267,16 +2262,17 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen, note):
                 alert_msg = "Please add products before generating a Pakbon."
             elif products:
                 alert_msg = "Please select a store before generating a Pakbon."
-                return dbc.Alert(alert_msg, color="warning")
+                return None, dbc.Alert(alert_msg, color="warning")
 
-#%%% CALLBACKS PAGE 2 
+#%%% CALLBACKS PAGE 2  [IJS]
 # Callback to populate the stock overview table on Page 2
 @app.callback(
-    [Output('supply-timestamp-ijs-page2', 'children'),
+    [Output("stock-ijs-header", "children"),
+     Output('supply-timestamp-ijs-page2', 'children'),
      Output('stock-table-ijs', 'data'),
      Output('stock-count-table-ijs', 'data')],
     [Input('url', 'pathname')],
-)
+) 
 def show_stock_table_ijs(pathname):
     if pathname == '/ijs':
         try:
@@ -1289,6 +2285,9 @@ def show_stock_table_ijs(pathname):
             # query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type] FROM [dbo].[DATA] WHERE [InStock] = 1"
             query = "SELECT [DATA01] as Barcode, [DATA02] as Omschrijving, [ValueNet] as Gewicht, [DATA03] as Type, [DATA04] as THT, [DATA05] as Medewerker FROM [dbo].[DATA] WHERE [DATA06] = 1"
             stock_df = pd.read_sql(query, db.bind)
+            
+            row_count = stock_df.shape[0]
+            header = f"VOORRAAD: {row_count} bakken"
             
             # Group by Description and calculate the count
             count_df = stock_df.groupby('Omschrijving').size().reset_index(name='Aantal')
@@ -1304,7 +2303,7 @@ def show_stock_table_ijs(pathname):
             formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
             alert_msg = dbc.Alert(formatted_datetime, color="primary")
             
-            return alert_msg, stock_data, count_data
+            return header, alert_msg, stock_data, count_data
         
         except Exception as e:
             logging.error("Error fetching data:", e)  # Consider using logging for error messages
@@ -1316,7 +2315,8 @@ def show_stock_table_ijs(pathname):
     
     
 @app.callback(
-    [Output('supply-timestamp-ijs-page2', 'children', allow_duplicate=True),
+    [Output("stock-ijs-header", "children", allow_duplicate=True),
+     Output('supply-timestamp-ijs-page2', 'children', allow_duplicate=True),
      Output('barcode-status-ijs-page2', 'children'),
      Output('stock-table-ijs', 'data', allow_duplicate=True),
      Output('stock-count-table-ijs', 'data', allow_duplicate=True),
@@ -1362,6 +2362,9 @@ def scan_barcode_ijs_page2(dummy1, dummy2, barcode_input, barcode_output):
         query = "SELECT [DATA01] as Barcode, [DATA02] as Omschrijving, [ValueNet] as Gewicht, [DATA03] as Type, [DATA04] as THT, [DATA05] as Medewerker FROM [dbo].[DATA] WHERE [DATA06] = 1"
         stock_df = pd.read_sql(query, db.bind)
         
+        row_count = stock_df.shape[0]
+        
+        header = f"VOORRAAD: {row_count} bakken"
         # Group by Description and calculate the count
         count_df = stock_df.groupby('Omschrijving').size().reset_index(name='Aantal')
         
@@ -1379,15 +2382,15 @@ def scan_barcode_ijs_page2(dummy1, dummy2, barcode_input, barcode_output):
     except Exception as e:
         logging.error("Error fetching or updating data:", e)
         # Handle errors gracefully (e.g., display an error message)
-        return None, None, None, None, None, None  # Example for resetting all outputs on error
+        return None, None, None, None, None, None, None  # Example for resetting all outputs on error
 
     finally:
         # Close the session even on exceptions
         db.close()
 
-    return alert_msg, alerts[0] if len(alerts) > 0 else None, stock_data, count_data, None, None
+    return header, alert_msg, alerts[0] if len(alerts) > 0 else None, stock_data, count_data, None, None
 
-#%%% CALLBACKS PAGE 3 
+#%%% CALLBACKS PAGE 3  [TAART]
 # Callback to populate the stock overview table on Page 3
 @app.callback(
     [Output('supply-timestamp-taart-page3', 'children'),
@@ -1612,8 +2615,7 @@ def detect_deleted_row_taart_page3(current_data, previous_data):
 
     return alert_msg, current_data
 
-
-#%%% CALLBACKS PAGE 4
+#%%% CALLBACKS PAGE 4 [DIVERSEN]
 # Callback to populate the stock overview table on Page 4
 @app.callback(
     [Output('supply-timestamp-diversen-page4', 'children'),
@@ -1831,6 +2833,696 @@ def detect_deleted_row_diversen_page4(current_data, previous_data):
                     db.close()
                     
                     # write_data_to_supply_sheet("DIVERSEN", stock_df[selected_columns])
+                    
+                    alert_msg = dbc.Alert(f"Barcode {deleted_id} deleted from database.", color="success")
+                except Exception as e:
+                    alert_msg = dbc.Alert(f"Failed to update barcode {deleted_id} in database: {str(e)}", color="danger")
+            else:
+               alert_msg = dbc.Alert("Deleted row did not have a valid ID.", color="danger")
+    else:
+        # If no rows have been deleted, return an appropriate message
+        alert_msg = dbc.Alert("No rows have been deleted.", color="warning")
+
+    return alert_msg, current_data
+
+#%%% CALLBACKS PAGE 5 [SUIKERVRIJ]
+# Callback to populate the stock overview table on Page 5
+@app.callback(
+    [Output('supply-timestamp-suikervrij-page5', 'children'),
+     Output('stock-table-suikervrij', 'data')],
+    [Input('url', 'pathname')],
+    # prevent_initial_call=True
+)
+def show_stock_table_suikervrij(pathname):
+    if pathname == '/suikervrij':
+        try:
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+
+            # Execute the query using SQLAlchemy
+            query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[SUIKERVRIJ]"
+            stock_df = pd.read_sql(query, db.bind)
+
+            # Convert DataFrame to dictionary and return data
+            data = stock_df.to_dict('records')
+            
+            write_data_to_supply_sheet("SUIKERVRIJ", stock_df[selected_columns])
+            
+            current_datetime = datetime.datetime.now()
+            formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            alert_msg = dbc.Alert(formatted_datetime, color="primary")
+            
+            return alert_msg, data
+        except Exception as e:
+            logging.error("Error fetching data:", e)  # Consider using logging for error messages
+            return None, []  # Return empty list or display an error message
+        finally:
+            # Ensure session is closed even on exceptions
+            db.close()
+    raise PreventUpdate  # Don't update if not on Page 4
+    
+    
+@app.callback(
+    [Output('supply-timestamp-suikervrij-page5', 'children', allow_duplicate=True),
+     Output('barcode-status-suikervrij-page5', 'children'),
+     Output('stock-table-suikervrij', 'data', allow_duplicate=True),
+     Output('barcode-input-suikervrij-page5', 'value'),
+     Output('suikervrij-count-input', 'value'),
+     Output('barcode-output-suikervrij-page5', 'value'),
+     Output('suikervrij-count-output', 'value')], 
+    [Input('update-suikervrij-database-button', 'n_clicks')],
+    [State('barcode-input-suikervrij-page5', 'value'),
+     State('suikervrij-count-input', 'value'),
+     State('barcode-output-suikervrij-page5', 'value'),
+     State('suikervrij-count-output', 'value')],
+    prevent_initial_call=True
+)
+def update_stock_table_suikervrij(n_clicks, barcode_input, item_count_input, barcode_output, item_count_output):
+    # Check if the update button is clicked and inputs are provided
+    if n_clicks > 0:
+        
+        try:
+            
+            alerts = []
+            data = []
+            
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+            
+            # Update input table
+            if barcode_input is not None and item_count_input is not None:
+                
+                update_query = text("UPDATE [dbo].[SUIKERVRIJ] SET [Aantal] = [Aantal] + :item_count WHERE [Barcode] = :barcode")
+                result = db.execute(update_query, {"item_count": item_count_input, "barcode": barcode_input})
+                
+                if result.rowcount == 0:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_input} not found in database.', color="danger"))
+                else:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
+                    
+                # alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
+
+            # Update output table
+            if barcode_output is not None and item_count_output is not None:
+                
+                update_query = text("UPDATE [dbo].[SUIKERVRIJ] SET [Aantal] = [Aantal] - :item_count WHERE [Barcode] = :barcode")
+                result = db.execute(update_query, {"item_count": item_count_output, "barcode": barcode_output})
+                
+                if result.rowcount == 0:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_output} not found in database.', color="danger"))
+                else:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and stock was adjusted.', color="success"))
+
+            # Commit changes to the database
+            db.commit()
+            
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+            query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[SUIKERVRIJ]"
+            stock_df = pd.read_sql(query, db.bind)
+
+            # Convert DataFrame to dictionary and return data
+            data = stock_df.to_dict('records')
+            
+            db.close()
+            
+            write_data_to_supply_sheet("SUIKERVRIJ", stock_df[selected_columns])  
+            
+            current_datetime = datetime.datetime.now()
+            formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            alert_msg = dbc.Alert(formatted_datetime, color="primary")
+
+            return alert_msg, alerts[0] if len(alerts) > 0 else None, data, None, None, None, None
+        except Exception as e:
+            logging.error("Error updating stock table:", e)  # Consider using logging for error messages
+            return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), [], None, None, None, None
+    
+    # If the update button is not clicked or if inputs are not provided, return no updates
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+@app.callback(
+    [Output('add-suikervrij-status', 'children'),
+     Output('stock-table-suikervrij', 'data', allow_duplicate=True),
+     Output('new-suikervrij-barcode', 'value'),
+     Output('new-suikervrij-description', 'value')],
+    [Input('add-suikervrij-button', 'n_clicks')],
+    [State('new-suikervrij-barcode', 'value'),
+     State('new-suikervrij-description', 'value')],
+    prevent_initial_call=True
+)
+def add_suikervrij_to_database(n_clicks, barcode, description):
+    
+    item_count = 0
+    
+    if n_clicks:
+        if barcode and description:
+            try:
+                
+                # Create a database session using SessionLocal
+                db = SessionLocal()
+                
+                insert_query = text(f"INSERT INTO [dbo].[SUIKERVRIJ] (Barcode, Omschrijving, Aantal) VALUES ('{barcode}','{description}',{item_count})")
+                db.execute(insert_query)
+                
+                # Commit changes to the database
+                db.commit()
+                
+                # Create a database session using SessionLocal
+                db = SessionLocal()
+                query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[SUIKERVRIJ]"
+                stock_df = pd.read_sql(query, db.bind)
+
+                # Convert DataFrame to dictionary and return data
+                data = stock_df.to_dict('records')
+                
+                db.close()
+                
+                # write_data_to_supply_sheet("SUIKERVRIJ", stock_df[selected_columns])
+                
+                return dbc.Alert("New item added to the database.", color="success"), data, None, None
+            except Exception as e:
+                logging.error("Error adding item to database:", e)
+                return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), dash.no_update, dash.no_update, dash.no_update
+        else:
+            return dbc.Alert("Please provide both description and item count.", color="warning"), dash.no_update, dash.no_update, dash.no_update
+    
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+@app.callback(
+    [Output('deleted-row-suikervrij-page5', 'children'),
+     Output('stock-table-suikervrij', 'data', allow_duplicate=True)],# You might need to add this component to your layout to display the deleted row information
+    [Input('stock-table-suikervrij', 'data'),
+     State('stock-table-suikervrij', 'data_previous')],
+    prevent_initial_call=True,
+)
+def detect_deleted_row_suikervrij_page5(current_data, previous_data):
+    if not dash.callback_context.triggered:
+        # This is the initial load, no data has been deleted
+        raise PreventUpdate
+
+    if previous_data is None:
+        # This can happen if there's no previous data to compare against
+        raise PreventUpdate
+
+    # Convert both lists of dictionaries (current and previous data) into sets of tuples for comparison
+    current_set = {tuple(d.items()) for d in current_data} if current_data else set()
+    previous_set = {tuple(d.items()) for d in previous_data} if previous_data else set()
+
+    # Find the difference between the two sets; this will be the deleted row(s)
+    deleted_rows = previous_set - current_set
+
+    # Convert the deleted rows back into a list of dictionaries to display or use elsewhere
+    deleted_rows_dicts = [dict(row) for row in deleted_rows]
+
+    # Initialize the alert message
+    alert_msg = None
+
+    if deleted_rows_dicts:
+        # If there are deleted rows, process each one
+        for deleted_row in deleted_rows_dicts:
+            # Extract the ID of the deleted row
+            deleted_id = deleted_row.get('Barcode', None)
+            # print(deleted_id)
+            if deleted_id:
+                # Connect to the database and update the InStock status
+                try:
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    delete_query = text("DELETE FROM [dbo].[SUIKERVRIJ] WHERE [Barcode] = :deleted_id")
+                    db.execute(delete_query, {"deleted_id": deleted_id})
+                    
+                    # Commit changes to the database
+                    db.commit()
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[SUIKERVRIJ]"
+                    stock_df = pd.read_sql(query, db.bind)
+
+                    db.close()
+                    
+                    # write_data_to_supply_sheet("SUIKERVRIJ", stock_df[selected_columns])
+                    
+                    alert_msg = dbc.Alert(f"Barcode {deleted_id} deleted from database.", color="success")
+                except Exception as e:
+                    alert_msg = dbc.Alert(f"Failed to update barcode {deleted_id} in database: {str(e)}", color="danger")
+            else:
+               alert_msg = dbc.Alert("Deleted row did not have a valid ID.", color="danger")
+    else:
+        # If no rows have been deleted, return an appropriate message
+        alert_msg = dbc.Alert("No rows have been deleted.", color="warning")
+
+    return alert_msg, current_data
+
+#%%% CALLBACKS PAGE 6 [GEBAK]
+# Callback to populate the stock overview table on Page 6
+@app.callback(
+    [Output('supply-timestamp-gebak-page6', 'children'),
+     Output('stock-table-gebak', 'data')],
+    [Input('url', 'pathname')],
+    # prevent_initial_call=True
+)
+def show_stock_table_gebak(pathname):
+    if pathname == '/gebak':
+        try:
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+
+            # Execute the query using SQLAlchemy
+            query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[GEBAK]"
+            stock_df = pd.read_sql(query, db.bind)
+
+            # Convert DataFrame to dictionary and return data
+            data = stock_df.to_dict('records')
+            
+            write_data_to_supply_sheet("GEBAK", stock_df[selected_columns])
+            
+            current_datetime = datetime.datetime.now()
+            formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            alert_msg = dbc.Alert(formatted_datetime, color="primary")
+            
+            return alert_msg, data
+        except Exception as e:
+            logging.error("Error fetching data:", e)  # Consider using logging for error messages
+            return None, []  # Return empty list or display an error message
+        finally:
+            # Ensure session is closed even on exceptions
+            db.close()
+    raise PreventUpdate  # Don't update if not on Page 4
+    
+    
+@app.callback(
+    [Output('supply-timestamp-gebak-page6', 'children', allow_duplicate=True),
+     Output('barcode-status-gebak-page6', 'children'),
+     Output('stock-table-gebak', 'data', allow_duplicate=True),
+     Output('barcode-input-gebak-page6', 'value'),
+     Output('gebak-count-input', 'value'),
+     Output('barcode-output-gebak-page6', 'value'),
+     Output('gebak-count-output', 'value')], 
+    [Input('update-gebak-database-button', 'n_clicks')],
+    [State('barcode-input-gebak-page6', 'value'),
+     State('gebak-count-input', 'value'),
+     State('barcode-output-gebak-page6', 'value'),
+     State('gebak-count-output', 'value')],
+    prevent_initial_call=True
+)
+def update_stock_table_gebak(n_clicks, barcode_input, item_count_input, barcode_output, item_count_output):
+    # Check if the update button is clicked and inputs are provided
+    if n_clicks > 0:
+        
+        try:
+            
+            alerts = []
+            data = []
+            
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+            
+            # Update input table
+            if barcode_input is not None and item_count_input is not None:
+                
+                update_query = text("UPDATE [dbo].[GEBAK] SET [Aantal] = [Aantal] + :item_count WHERE [Barcode] = :barcode")
+                result = db.execute(update_query, {"item_count": item_count_input, "barcode": barcode_input})
+                
+                if result.rowcount == 0:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_input} not found in database.', color="danger"))
+                else:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
+                    
+                # alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
+
+            # Update output table
+            if barcode_output is not None and item_count_output is not None:
+                
+                update_query = text("UPDATE [dbo].[GEBAK] SET [Aantal] = [Aantal] - :item_count WHERE [Barcode] = :barcode")
+                result = db.execute(update_query, {"item_count": item_count_output, "barcode": barcode_output})
+                
+                if result.rowcount == 0:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_output} not found in database.', color="danger"))
+                else:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and stock was adjusted.', color="success"))
+
+            # Commit changes to the database
+            db.commit()
+            
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+            query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[GEBAK]"
+            stock_df = pd.read_sql(query, db.bind)
+
+            # Convert DataFrame to dictionary and return data
+            data = stock_df.to_dict('records')
+            
+            db.close()
+            
+            write_data_to_supply_sheet("GEBAK", stock_df[selected_columns])  
+            
+            current_datetime = datetime.datetime.now()
+            formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            alert_msg = dbc.Alert(formatted_datetime, color="primary")
+
+            return alert_msg, alerts[0] if len(alerts) > 0 else None, data, None, None, None, None
+        except Exception as e:
+            logging.error("Error updating stock table:", e)  # Consider using logging for error messages
+            return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), [], None, None, None, None
+    
+    # If the update button is not clicked or if inputs are not provided, return no updates
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+@app.callback(
+    [Output('add-gebak-status', 'children'),
+     Output('stock-table-gebak', 'data', allow_duplicate=True),
+     Output('new-gebak-barcode', 'value'),
+     Output('new-gebak-description', 'value')],
+    [Input('add-gebak-button', 'n_clicks')],
+    [State('new-gebak-barcode', 'value'),
+     State('new-gebak-description', 'value')],
+    prevent_initial_call=True
+)
+def add_gebak_to_database(n_clicks, barcode, description):
+    
+    item_count = 0
+    
+    if n_clicks:
+        if barcode and description:
+            try:
+                
+                # Create a database session using SessionLocal
+                db = SessionLocal()
+                
+                insert_query = text(f"INSERT INTO [dbo].[GEBAK] (Barcode, Omschrijving, Aantal) VALUES ('{barcode}','{description}',{item_count})")
+                db.execute(insert_query)
+                
+                # Commit changes to the database
+                db.commit()
+                
+                # Create a database session using SessionLocal
+                db = SessionLocal()
+                query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[GEBAK]"
+                stock_df = pd.read_sql(query, db.bind)
+
+                # Convert DataFrame to dictionary and return data
+                data = stock_df.to_dict('records')
+                
+                db.close()
+                
+                # write_data_to_supply_sheet("GEBAK", stock_df[selected_columns])
+                
+                return dbc.Alert("New item added to the database.", color="success"), data, None, None
+            except Exception as e:
+                logging.error("Error adding item to database:", e)
+                return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), dash.no_update, dash.no_update, dash.no_update
+        else:
+            return dbc.Alert("Please provide both description and item count.", color="warning"), dash.no_update, dash.no_update, dash.no_update
+    
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+@app.callback(
+    [Output('deleted-row-gebak-page6', 'children'),
+     Output('stock-table-gebak', 'data', allow_duplicate=True)],# You might need to add this component to your layout to display the deleted row information
+    [Input('stock-table-gebak', 'data'),
+     State('stock-table-gebak', 'data_previous')],
+    prevent_initial_call=True,
+)
+def detect_deleted_row_gebak_page6(current_data, previous_data):
+    if not dash.callback_context.triggered:
+        # This is the initial load, no data has been deleted
+        raise PreventUpdate
+
+    if previous_data is None:
+        # This can happen if there's no previous data to compare against
+        raise PreventUpdate
+
+    # Convert both lists of dictionaries (current and previous data) into sets of tuples for comparison
+    current_set = {tuple(d.items()) for d in current_data} if current_data else set()
+    previous_set = {tuple(d.items()) for d in previous_data} if previous_data else set()
+
+    # Find the difference between the two sets; this will be the deleted row(s)
+    deleted_rows = previous_set - current_set
+
+    # Convert the deleted rows back into a list of dictionaries to display or use elsewhere
+    deleted_rows_dicts = [dict(row) for row in deleted_rows]
+
+    # Initialize the alert message
+    alert_msg = None
+
+    if deleted_rows_dicts:
+        # If there are deleted rows, process each one
+        for deleted_row in deleted_rows_dicts:
+            # Extract the ID of the deleted row
+            deleted_id = deleted_row.get('Barcode', None)
+            # print(deleted_id)
+            if deleted_id:
+                # Connect to the database and update the InStock status
+                try:
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    delete_query = text("DELETE FROM [dbo].[GEBAK] WHERE [Barcode] = :deleted_id")
+                    db.execute(delete_query, {"deleted_id": deleted_id})
+                    
+                    # Commit changes to the database
+                    db.commit()
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[GEBAK]"
+                    stock_df = pd.read_sql(query, db.bind)
+
+                    db.close()
+                    
+                    # write_data_to_supply_sheet("GEBAK", stock_df[selected_columns])
+                    
+                    alert_msg = dbc.Alert(f"Barcode {deleted_id} deleted from database.", color="success")
+                except Exception as e:
+                    alert_msg = dbc.Alert(f"Failed to update barcode {deleted_id} in database: {str(e)}", color="danger")
+            else:
+               alert_msg = dbc.Alert("Deleted row did not have a valid ID.", color="danger")
+    else:
+        # If no rows have been deleted, return an appropriate message
+        alert_msg = dbc.Alert("No rows have been deleted.", color="warning")
+
+    return alert_msg, current_data
+
+#%%% CALLBACKS PAGE 7 [POTJES]
+# Callback to populate the stock overview table on Page 7
+@app.callback(
+    [Output('supply-timestamp-potjes-page7', 'children'),
+     Output('stock-table-potjes', 'data')],
+    [Input('url', 'pathname')],
+    # prevent_initial_call=True
+)
+def show_stock_table_potjes(pathname):
+    if pathname == '/potjes':
+        try:
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+
+            # Execute the query using SQLAlchemy
+            query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[POTJES]"
+            stock_df = pd.read_sql(query, db.bind)
+
+            # Convert DataFrame to dictionary and return data
+            data = stock_df.to_dict('records')
+            
+            write_data_to_supply_sheet("POTJES", stock_df[selected_columns])
+            
+            current_datetime = datetime.datetime.now()
+            formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            alert_msg = dbc.Alert(formatted_datetime, color="primary")
+            
+            return alert_msg, data
+        except Exception as e:
+            logging.error("Error fetching data:", e)  # Consider using logging for error messages
+            return None, []  # Return empty list or display an error message
+        finally:
+            # Ensure session is closed even on exceptions
+            db.close()
+    raise PreventUpdate  # Don't update if not on Page 4
+    
+    
+@app.callback(
+    [Output('supply-timestamp-potjes-page7', 'children', allow_duplicate=True),
+     Output('barcode-status-potjes-page7', 'children'),
+     Output('stock-table-potjes', 'data', allow_duplicate=True),
+     Output('barcode-input-potjes-page7', 'value'),
+     Output('potjes-count-input', 'value'),
+     Output('barcode-output-potjes-page7', 'value'),
+     Output('potjes-count-output', 'value')], 
+    [Input('update-potjes-database-button', 'n_clicks')],
+    [State('barcode-input-potjes-page7', 'value'),
+     State('potjes-count-input', 'value'),
+     State('barcode-output-potjes-page7', 'value'),
+     State('potjes-count-output', 'value')],
+    prevent_initial_call=True
+)
+def update_stock_table_potjes(n_clicks, barcode_input, item_count_input, barcode_output, item_count_output):
+    # Check if the update button is clicked and inputs are provided
+    if n_clicks > 0:
+        
+        try:
+            
+            alerts = []
+            data = []
+            
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+            
+            # Update input table
+            if barcode_input is not None and item_count_input is not None:
+                
+                update_query = text("UPDATE [dbo].[POTJES] SET [Aantal] = [Aantal] + :item_count WHERE [Barcode] = :barcode")
+                result = db.execute(update_query, {"item_count": item_count_input, "barcode": barcode_input})
+                
+                if result.rowcount == 0:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_input} not found in database.', color="danger"))
+                else:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
+                    
+                # alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and stock was adjusted.', color="success"))
+
+            # Update output table
+            if barcode_output is not None and item_count_output is not None:
+                
+                update_query = text("UPDATE [dbo].[POTJES] SET [Aantal] = [Aantal] - :item_count WHERE [Barcode] = :barcode")
+                result = db.execute(update_query, {"item_count": item_count_output, "barcode": barcode_output})
+                
+                if result.rowcount == 0:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_output} not found in database.', color="danger"))
+                else:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and stock was adjusted.', color="success"))
+
+            # Commit changes to the database
+            db.commit()
+            
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+            query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[POTJES]"
+            stock_df = pd.read_sql(query, db.bind)
+
+            # Convert DataFrame to dictionary and return data
+            data = stock_df.to_dict('records')
+            
+            db.close()
+            
+            write_data_to_supply_sheet("POTJES", stock_df[selected_columns])  
+            
+            current_datetime = datetime.datetime.now()
+            formatted_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            alert_msg = dbc.Alert(formatted_datetime, color="primary")
+
+            return alert_msg, alerts[0] if len(alerts) > 0 else None, data, None, None, None, None
+        except Exception as e:
+            logging.error("Error updating stock table:", e)  # Consider using logging for error messages
+            return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), [], None, None, None, None
+    
+    # If the update button is not clicked or if inputs are not provided, return no updates
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+@app.callback(
+    [Output('add-potjes-status', 'children'),
+     Output('stock-table-potjes', 'data', allow_duplicate=True),
+     Output('new-potjes-barcode', 'value'),
+     Output('new-potjes-description', 'value')],
+    [Input('add-potjes-button', 'n_clicks')],
+    [State('new-potjes-barcode', 'value'),
+     State('new-potjes-description', 'value')],
+    prevent_initial_call=True
+)
+def add_potjes_to_database(n_clicks, barcode, description):
+    
+    item_count = 0
+    
+    if n_clicks:
+        if barcode and description:
+            try:
+                
+                # Create a database session using SessionLocal
+                db = SessionLocal()
+                
+                insert_query = text(f"INSERT INTO [dbo].[POTJES] (Barcode, Omschrijving, Aantal) VALUES ('{barcode}','{description}',{item_count})")
+                db.execute(insert_query)
+                
+                # Commit changes to the database
+                db.commit()
+                
+                # Create a database session using SessionLocal
+                db = SessionLocal()
+                query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[POTJES]"
+                stock_df = pd.read_sql(query, db.bind)
+
+                # Convert DataFrame to dictionary and return data
+                data = stock_df.to_dict('records')
+                
+                db.close()
+                
+                # write_data_to_supply_sheet("POTJES", stock_df[selected_columns])
+                
+                return dbc.Alert("New item added to the database.", color="success"), data, None, None
+            except Exception as e:
+                logging.error("Error adding item to database:", e)
+                return dbc.Alert(f"An error occurred: {str(e)}", color="danger"), dash.no_update, dash.no_update, dash.no_update
+        else:
+            return dbc.Alert("Please provide both description and item count.", color="warning"), dash.no_update, dash.no_update, dash.no_update
+    
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+@app.callback(
+    [Output('deleted-row-potjes-page7', 'children'),
+     Output('stock-table-potjes', 'data', allow_duplicate=True)],# You might need to add this component to your layout to display the deleted row information
+    [Input('stock-table-potjes', 'data'),
+     State('stock-table-potjes', 'data_previous')],
+    prevent_initial_call=True,
+)
+def detect_deleted_row_potjes_page7(current_data, previous_data):
+    if not dash.callback_context.triggered:
+        # This is the initial load, no data has been deleted
+        raise PreventUpdate
+
+    if previous_data is None:
+        # This can happen if there's no previous data to compare against
+        raise PreventUpdate
+
+    # Convert both lists of dictionaries (current and previous data) into sets of tuples for comparison
+    current_set = {tuple(d.items()) for d in current_data} if current_data else set()
+    previous_set = {tuple(d.items()) for d in previous_data} if previous_data else set()
+
+    # Find the difference between the two sets; this will be the deleted row(s)
+    deleted_rows = previous_set - current_set
+
+    # Convert the deleted rows back into a list of dictionaries to display or use elsewhere
+    deleted_rows_dicts = [dict(row) for row in deleted_rows]
+
+    # Initialize the alert message
+    alert_msg = None
+
+    if deleted_rows_dicts:
+        # If there are deleted rows, process each one
+        for deleted_row in deleted_rows_dicts:
+            # Extract the ID of the deleted row
+            deleted_id = deleted_row.get('Barcode', None)
+            # print(deleted_id)
+            if deleted_id:
+                # Connect to the database and update the InStock status
+                try:
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    delete_query = text("DELETE FROM [dbo].[POTJES] WHERE [Barcode] = :deleted_id")
+                    db.execute(delete_query, {"deleted_id": deleted_id})
+                    
+                    # Commit changes to the database
+                    db.commit()
+                    
+                    # Create a database session using SessionLocal
+                    db = SessionLocal()
+                    query = "SELECT [Barcode], [Omschrijving], [Aantal] FROM [dbo].[POTJES]"
+                    stock_df = pd.read_sql(query, db.bind)
+
+                    db.close()
+                    
+                    # write_data_to_supply_sheet("POTJES", stock_df[selected_columns])
                     
                     alert_msg = dbc.Alert(f"Barcode {deleted_id} deleted from database.", color="success")
                 except Exception as e:
