@@ -6,8 +6,8 @@ from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 
 def send_email(subject, body, recipient, pdf_path):
-    sender_email = "luukaltenburg@gmail.com"
-    sender_password = "thyqwfuihmgxfnkz" #thyq wfui hmgx fnkz
+    sender_email = "1.luciano.wassenaar@gmail.com"
+    sender_password = "rvcxhxoomrcqmclf" #thyq wfui hmgx fnkz
 
     msg = MIMEMultipart()
     msg['From'] = sender_email

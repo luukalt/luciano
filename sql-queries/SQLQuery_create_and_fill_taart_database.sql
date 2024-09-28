@@ -1,8 +1,9 @@
-CREATE TABLE [dbo].[TAART] (
+CREATE TABLE [dbo].[POTJES] (
     [ID] [int] IDENTITY(1,1) NOT NULL,
-    [Description] [nvarchar](100) NULL,
-    [ItemCount] [int] NULL,
-    CONSTRAINT [PK_TAART] PRIMARY KEY CLUSTERED 
+	[Barcode] [nvarchar](100) NULL,
+    [Omschrijving] [nvarchar](100) NULL,
+    [Aantal] [int] NULL,
+    CONSTRAINT [PK_GEBAK] PRIMARY KEY CLUSTERED 
     (
         [ID] ASC
     ) WITH (
@@ -15,13 +16,7 @@ CREATE TABLE [dbo].[TAART] (
 ) ON [PRIMARY];
 
 -- Insert dummy data
-INSERT INTO [dbo].[TAART] 
-    (Description, ItemCount)
-VALUES ('Item 1', 10),
-       ('Item 2', 15),
-       ('Item 3', 20),
-       ('Item 4', 8),
-       ('Item 5', 12),
-       ('Item 6', 18),
-       ('Item 7', 25),
-       ('Item 8', 30);
+INSERT INTO [dbo].[POTJES] 
+    (Barcode, Omschrijving, Aantal)
+VALUES (1, 'Item 1', 10),
+       (2, 'Item 2', 15);

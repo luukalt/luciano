@@ -67,6 +67,13 @@ stores = [
     {'label': 'Moments Voorschoten', 'value': 'MV'},
     {'label': 'Eenmalige klant', 'value': 'EK'},
     {'label': 'Breuk', 'value': 'BREUK'},
+    {'label': 'Koen van Es', 'value': 'KVE'},
+    {'label': 'Rozenstein', 'value': 'ROZ'},
+    {'label': 'Broeders', 'value': 'BRO'},
+    {'label': 'Sport', 'value': 'SPO'},
+    {'label': 'Grand Cafe de Vriend', 'value': 'GCDV'},
+    {'label': 'Bistro Tante Bet', 'value': 'BTB'},
+    {'label': 'Rooijakkers', 'value': 'ROOIJ'},
 ]
 
 store_library = {}
@@ -96,7 +103,7 @@ navbar = dbc.NavbarSimple(
         dbc.NavItem(dcc.Link('SUIKERVRIJ', href='/suikervrij', className='nav-link')),
         dbc.NavItem(dcc.Link('GEBAK', href='/gebak', className='nav-link')),
         dbc.NavItem(dcc.Link('POTJES', href='/potjes', className='nav-link')),
-        
+        dbc.NavItem(dcc.Link('ORDERS', href='/orders', className='nav-link')),
         # Add more navigation items here as needed
     ],
     brand="Luciano Voorraad Beheer",
@@ -360,7 +367,7 @@ page_2_layout = dbc.Container([
                     dbc.Input(id='barcode-output-ijs-page2', type='text', placeholder='Klik eerst hier en scan dan de ijsbak', debounce=True),
                 ])
             ]),
-        ], width=3),
+        ], width=2),
         dbc.Col([
             dbc.Card([
                     dbc.CardHeader("VOORRAAD", id="stock-ijs-header"),
@@ -371,8 +378,9 @@ page_2_layout = dbc.Container([
                             # data=df_products_page2.to_dict('records'),
                             # editable=False,
                             # row_deletable=True,
+                            # placeholder='Enter search text...',
                             # filter_action='native',  # Enable filtering
-                            # sort_action='native',  # Enable sorting
+                            sort_action='native',  # Enable sorting
                             style_table={'overflowX': 'auto'},
                             # page_action='none',
                             style_cell={
@@ -383,7 +391,7 @@ page_2_layout = dbc.Container([
                         )
                     ])
                 ]),
-        ], width=6),
+        ], width=7),
         dbc.Col([
             dbc.Card([
                     dbc.CardHeader("VOORRAAD PER STUK"),
@@ -808,6 +816,65 @@ page_7_layout = dbc.Container([
         ], width=6),
     ], className="mt-3"),
 ], fluid=True)
+
+#%%% page 8 layout [ORDERS]
+page_8_layout = dbc.Container([
+    navbar,
+    html.H1('OVERZICHT ORDERS - IJS'),
+    # dcc.Link('Ga terug naar PAKBON', href='/'),
+    html.Br(),
+    dbc.Row([
+        dbc.Col([
+            
+            dbc.Card([
+                dbc.CardHeader("Zoektermen"),
+                dbc.CardBody([
+                    dbc.Col(html.Label('Kies Winkel:'), width='auto'),
+                    dbc.Col(dcc.Dropdown(id='store-dropdown-page8', options=stores, placeholder='Selecteer een winkel', className="mb-2"), width='auto'),
+                    
+                    dbc.Col(html.Label('Vul datum in:'), width='auto'),
+                    dbc.Col(dbc.Input(id='order-date-page8', type='text', debounce=True), width='auto'),
+                    
+                    dbc.Col(html.Label('Barcode:'), width='auto'),
+                    dbc.Col(dbc.Input(id='barcode-ijs-page8', type='text', debounce=True), width='auto'),
+                    
+                    dbc.Col(html.Label('Smaak:'), width='auto'),
+                    dbc.Col(dbc.Input(id='smaak-ijs-page8', type='text', debounce=True), width='auto'),
+                    
+                    dbc.Button("Zoek", id="search-button-page8", color="primary", className="mt-3")
+                ]),
+                
+            ]),
+            html.Br(),
+        ], width=3),
+        dbc.Col([
+            dbc.Card([
+                    dbc.CardHeader("ORDERS", id="orders-header"),
+                    dbc.CardBody([
+                        dash_table.DataTable(
+                            id='orders-table',
+                            # columns=[{'name': i, 'id': i} for i in df_products_page2.columns],
+                            # data=df_products_page2.to_dict('records'),
+                            # editable=False,
+                            # row_deletable=True,
+                            # placeholder='Enter search text...',
+                            # filter_action='native',  # Enable filtering
+                            sort_action='native',  # Enable sorting
+                            style_table={'overflowX': 'auto'},
+                            # page_action='none',
+                            style_cell={
+                                'minWidth': '100px', 'width': '150px', 'maxWidth': '180px',
+                                'overflow': 'hidden',
+                                'textOverflow': 'ellipsis',
+                            }
+                        )
+                    ])
+                ]),
+        ], width=7),
+        
+    ], className="mt-3"),
+], fluid=True)
+
 #%%% Update the app.layout to include page routing
 app.layout = html.Div([
     dcc.Location(id='url', refresh=False),  # This tracks the URL
@@ -828,6 +895,9 @@ app.layout = html.Div([
     prevent_initial_call=True
 )
 def display_page(pathname):
+    
+    if pathname == '/orders':
+        return page_8_layout
     if pathname == '/potjes':
         return page_7_layout
     if pathname == '/gebak':
@@ -873,21 +943,22 @@ def load_last_saved_form(n_clicks, products, taarten, diversen, suikervrij, geba
     # Perform some action here when the new button is clicked
     if n_clicks is not None and n_clicks > 0:
         # Your action here, for example:
-        row_count = len(products)
-        header_products = f"IJS: {row_count} bakken"
         
+        row_count = len(products) if products else 0
+        header_products = f"IJS: {row_count} bakken"
+    
         row_count = sum(row['Aantal'] for row in taarten) if taarten else 0
         header_taarten = f"TAART: {row_count}"
-        
+    
         row_count = sum(row['Aantal'] for row in diversen) if diversen else 0
         header_diversen = f"DIVERSEN: {row_count}"
-        
+    
         row_count = sum(row['Aantal'] for row in suikervrij) if suikervrij else 0
         header_suikervrij = f"SUIKERVRIJ: {row_count}"
-        
+    
         row_count = sum(row['Aantal'] for row in gebak) if gebak else 0
         header_gebak = f"GEBAK: {row_count}"
-        
+    
         row_count = sum(row['Aantal'] for row in potjes) if potjes else 0
         header_potjes = f"POTJES: {row_count}"
         
@@ -1975,9 +2046,21 @@ def detect_deleted_row_potjes_page1(current_data, previous_data):
     return header, alert_msg, current_data
 
 #%%%% GENERATE PAKBON PDF
+
+@app.callback(
+    Output('generate-pdf-button', 'disabled'),
+    [Input('generate-pdf-button', 'n_clicks')]
+)
+def disable_button(n_clicks):
+    if n_clicks > 0:
+        # print('a', n_clicks)
+        return True
+    return False
+
 # Combined Callback for generating and mailing pdf
 @callback(
-    [Output('note', 'value'),
+    [Output('generate-pdf-button', 'disabled', allow_duplicate=True),
+     Output('note', 'value'),
      Output('pdf-generation-status', 'children'),  # For the status message
      Output('ijs-table-page1', 'data', allow_duplicate=True),
      Output('taart-table-page1', 'data', allow_duplicate=True),
@@ -2003,13 +2086,15 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen, suikerv
         raise PreventUpdate
     
     if not any([products, taarten, diversen, suikervrij, gebak, potjes]):
-        return None, dbc.Alert("Please add products before generating a PDF.", color="warning"), [], [], [], [], [], []
+        return False, None, dbc.Alert("Please add products before generating a PDF.", color="warning"), [], [], [], [], [], []
     
     if n_clicks is not None and n_clicks > 0:
         
+        # print('b', n_clicks)
+        
         store_label = next((item['label'] for item in stores if item['value'] == store), None)
         if not store_label:
-            return None, dbc.Alert("Please select a store.", color="danger"), products, taarten, diversen, suikervrij, gebak, potjes
+            return False, None, dbc.Alert("Please select a store.", color="danger"), products, taarten, diversen, suikervrij, gebak, potjes
     
         # Get the current date
         current_datetime = datetime.datetime.now()
@@ -2017,6 +2102,7 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen, suikerv
         # Format the date as yy-mm-dd
         formatted_date1 = current_datetime.strftime('%Y-%m-%d')
         formatted_date2 = current_datetime.strftime('%Y%m%d')
+        formatted_date3 = current_datetime.strftime('%Y%m%d_%H%M%S')
         # raw_formatted_date1 = str(formatted_date1)
     
         # Format the date and time as yyyy-mm-dd HH:MM:SS
@@ -2026,7 +2112,7 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen, suikerv
         pdf_folder = 'Orders_Pdfs'
         
         # Define PDF filename based on the store name for uniqueness
-        pdf_filename = f'{store}_{formatted_date2}.pdf'
+        pdf_filename = f'{store}_{formatted_date3}.pdf'
         
         # Set up the PDF document
         doc = SimpleDocTemplate(pdf_filename, pagesize=A4, rightMargin=72, leftMargin=72,
@@ -2143,57 +2229,16 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen, suikerv
                 table.hAlign = 'LEFT'  # Options are 'LEFT', 'CENTER', 'RIGHT'
                 
                 if table_name == "IJS":
-                    table_pack = KeepTogether([title, table])
+                    elements.append(title)
+                    elements.append(table)
+                    
                 else:
                     table_pack = KeepTogether([title, table, table_total_footer, special_table_total_footer]) if special_count else KeepTogether([title, table, table_total_footer])
-                
-                elements.append(table_pack)
+                    elements.append(table_pack)
                 
                 if table_name == "IJS":
                     elements.append(totals_table_pack)
                 
-        # IJS
-        # # Initialize dictionaries to store totals
-        # type_count = {}
-        # type_weight = {}
-        
-        # # Calculate totals for each type
-        # if products:
-        #     for product in products:
-        #         product_type = product['Type'].lower()
-        #         if product_type not in type_count:
-        #             type_count[product_type] = 1
-        #             type_weight[product_type] = product['Gewicht [kg]']
-        #         else:
-        #             type_count[product_type] += 1
-        #             type_weight[product_type] += product['Gewicht [kg]']
-            
-        #     # Add totals table to the PDF
-        #     type_totals_data = [['Type', 'Aantal', 'Totaal Gewicht [kg]']]
-        #     for product_type, count in type_count.items():
-        #         type_totals_data.append([product_type, count, round(type_weight[product_type], 2)])
-            
-        #     # Adding a paragraph to describe the totals table
-        #     total_products = len(products)
-        #     table_total_footer = Paragraph(f'Totaal IJS: {total_products}', styles['Heading3'])
-        #     totals_description = Paragraph(f"IJS TOTAAL", styles['Heading2'])
-        #     # elements.append(totals_description)
-            
-        #     # Setting up the table for totals
-        #     totals_table = Table(type_totals_data, colWidths=[100, 60, 100])  # Specify column widths as needed
-        #     totals_table.setStyle(TableStyle([
-        #         ('BACKGROUND', (0, 0), (-1, 0), colors.white),
-        #         ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-        #         ('ALIGNMENT', (0, 0), (-1, -1), 'LEFT'),  # Align text to the left
-        #         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        #         ('GRID', (0, 0), (-1, -1), 1, colors.black),
-        #         ('BOX', (0, 0), (-1, -1), 2, colors.black),
-        #     ]))
-        #     totals_table.hAlign = 'LEFT'  # Options are 'LEFT', 'CENTER', 'RIGHT'
-        #     totals_table_pack = KeepTogether([totals_description, totals_table, table_total_footer])
-            
-            # elements.append(totals_table_pack)
-        
         # Add note to the PDF
         if note:
             note_header = Paragraph('Opmerking', styles['Heading3'])
@@ -2205,7 +2250,29 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen, suikerv
         doc.build(elements)
     
         if store and (products or taarten or diversen or suikervrij or gebak or potjes):
-
+            
+            try:
+                # Create a database session using SessionLocal
+                db = SessionLocal()
+                
+                # Iterate over each product and insert it into the database
+                for product in products:
+                    barcode_order = product['Barcode']
+                    description_order = product['Omschrijving'],
+                    description_order = description_order[0].strip('()')
+                    
+                    insert_query = text(f"INSERT INTO [dbo].[ORDERS] (Barcode, Omschrijving, Winkel, [Order Datum]) VALUES ('{barcode_order}','{description_order}','{store_label}','{formatted_date1}')")
+                    db.execute(insert_query)
+                
+                # Commit the transaction
+                db.commit()
+                
+                # Close the database session
+                db.close()
+            
+            except Exception as e:
+                print(f"Error putting products in dbo.ORDERS: {e}")
+                
             # Move the file
             try:
                 # Construct the destination path
@@ -2218,7 +2285,7 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen, suikerv
 
                 # Move the file to the destination folder
                 shutil.move(pdf_filename, pdf_folder)
-                print(f"Pakbon {store}_{formatted_date2} geplaatst in {pdf_folder}")
+                print(f"Pakbon {store}_{formatted_date3} geplaatst in {pdf_folder}")
 
             except Exception as e:
                 print(f"Error moving file: {e}")
@@ -2235,11 +2302,11 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen, suikerv
                 
                 store_id = store_library[store_label]
                 new_entry = [
-                    f'{store}_{formatted_date2}',     # Order ID
+                    f'{store}_{formatted_date3}',     # Order ID
                     f'{store_id}',    # Customer ID
                     f'{formatted_date1}',   # Order Date
                     "FALSE",      # Status
-                    f"Orders_Pdfs/{store}_{formatted_date2}.pdf",  # File
+                    f"Orders_Pdfs/{store}_{formatted_date3}.pdf",  # File
                     "",  # Signature
                     "",   # Timestamp
                     "",  # Note
@@ -2251,10 +2318,10 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen, suikerv
                 upload_pdf_to_drive(destination_path)
 
                 # Return success message and empty the table
-                return None, dbc.Alert(f"Pakbon {store_label} {formatted_date1} generated and uploaded to the app!", color="success"), [], [], [], [], [], []
+                return False, None, dbc.Alert(f"Pakbon {store_label} {formatted_date1} generated and uploaded to the app!", color="success"), [], [], [], [], [], []
             except Exception as e:
                 # Return error message and keep the table data unchanged
-                return None, dbc.Alert(f"An error occurred: {str(e)}", color="danger"), [], [], [], [], [], []
+                return False, None, dbc.Alert(f"An error occurred: {str(e)}", color="danger"), [], [], [], [], [], []
         else:
             # Alerts for missing information, keep the table data unchanged
             alert_msg = "Please select a store and add products before generating a Pakbon."
@@ -2262,7 +2329,7 @@ def generate_and_email_pdf(n_clicks, store, products, taarten, diversen, suikerv
                 alert_msg = "Please add products before generating a Pakbon."
             elif products:
                 alert_msg = "Please select a store before generating a Pakbon."
-                return None, dbc.Alert(alert_msg, color="warning")
+                return False, None, dbc.Alert(alert_msg, color="warning")
 
 #%%% CALLBACKS PAGE 2  [IJS]
 # Callback to populate the stock overview table on Page 2
@@ -2283,9 +2350,23 @@ def show_stock_table_ijs(pathname):
             
             # Execute the query using SQLAlchemy
             # query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type] FROM [dbo].[DATA] WHERE [InStock] = 1"
-            query = "SELECT [DATA01] as Barcode, [DATA02] as Omschrijving, [ValueNet] as Gewicht, [DATA03] as Type, [DATA04] as THT, [DATA05] as Medewerker FROM [dbo].[DATA] WHERE [DATA06] = 1"
+            query = "SELECT [DATA01] as Barcode, [DATA02] as Omschrijving, [ValueNet] as Gewicht, [DATA03] as Type, [DATA04] as THT, [DATA05] as Medewerker, [WgtDate] as Weegdatum FROM [dbo].[DATA] WHERE [DATA06] = 1"
             stock_df = pd.read_sql(query, db.bind)
             
+            # Fetch barcodes from ORDERS table
+            query_orders = "SELECT [Barcode] FROM [dbo].[ORDERS]"
+            orders_df = pd.read_sql(query_orders, db.bind)
+            
+            # Check if barcodes in DATA table also exist in ORDERS table
+            common_barcodes = set(stock_df['Barcode']).intersection(set(orders_df['Barcode']))
+            
+            # Update rows in DATA table where Barcode exists in both tables
+            if common_barcodes:
+                for common_barcode in common_barcodes:
+                    query = text("UPDATE [dbo].[DATA] SET [DATA06] = 0 WHERE [DATA01] = :common_barcode").params(common_barcode=common_barcode)
+                    result = db.execute(query)
+                db.commit()
+                
             row_count = stock_df.shape[0]
             header = f"VOORRAAD: {row_count} bakken"
             
@@ -2339,27 +2420,54 @@ def scan_barcode_ijs_page2(dummy1, dummy2, barcode_input, barcode_output):
         
         # Create a database session
         db = SessionLocal()
-
+        
+        
         # Update barcode status (if input is not None)
         if barcode_input:
+            
+            # Fetch the specific barcode from the ORDERS table
+            query_specific_barcode = f"SELECT [Barcode] FROM [dbo].[ORDERS] WHERE [Barcode] = '{barcode_input}'"
+            specific_barcode_df = pd.read_sql(query_specific_barcode, db.bind)
+            
             barcode_input = ''.join(char for char in barcode_input if char != ' ')
-            query = text("UPDATE [dbo].[DATA] SET [DATA06] = 1 WHERE [DATA01] = :barcode").params(barcode=barcode_input)
-            db.execute(query)
-            alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and set to in stock.', color="success"))
+            
+            # Check if the specific barcode exists in the ORDERS table
+            if not specific_barcode_df.empty:
+                alerts.append(dbc.Alert(f'Barcode {barcode_input} already ordered.', color="warning"))
+                query = text("UPDATE [dbo].[DATA] SET [DATA06] = 0 WHERE [DATA01] = :barcode").params(barcode=barcode_input)
+                result = db.execute(query)
+            else:
+                query = text("UPDATE [dbo].[DATA] SET [DATA06] = 1 WHERE [DATA01] = :barcode").params(barcode=barcode_input)
+                result = db.execute(query)
+                
+                if result.rowcount == 0:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_input} not in database.', color="danger"))
+                else:
+                    alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and set to in stock.', color="success"))
+            
             db.commit()
+                
+            # db.execute(query)
+            # alerts.append(dbc.Alert(f'Barcode {barcode_input} found in database and set to in stock.', color="success"))
+            # db.commit()
 
         # Update barcode status (if output is not None)
         if barcode_output:
             barcode_output = ''.join(char for char in barcode_output if char != ' ')
             query = text("UPDATE [dbo].[DATA] SET [DATA06] = 0 WHERE [DATA01] = :barcode").params(barcode=barcode_output)
-            db.execute(query)
-            alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and set out of stock.', color="success"))
-            db.commit()
+            result = db.execute(query)
+            if result.rowcount == 0:
+                alerts.append(dbc.Alert(f'Barcode {barcode_output} not found in database.', color="danger"))
+            else:
+                alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and set out of stock.', color="success"))
+                db.commit()
+                
+            # db.execute(query)
+            # alerts.append(dbc.Alert(f'Barcode {barcode_output} found in database and set out of stock.', color="success"))
+            # db.commit()
 
         # Get updated data for the DataTable
-        # query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type] FROM [dbo].[DATA] WHERE [DATA06] = 1"
-        # query = "SELECT [DATA01], [DATA02], [ValueNet], [DATA03], [DATA04], [DATA05] FROM [dbo].[DATA] WHERE [DATA06] = 1"
-        query = "SELECT [DATA01] as Barcode, [DATA02] as Omschrijving, [ValueNet] as Gewicht, [DATA03] as Type, [DATA04] as THT, [DATA05] as Medewerker FROM [dbo].[DATA] WHERE [DATA06] = 1"
+        query = "SELECT [DATA01] as Barcode, [DATA02] as Omschrijving, [ValueNet] as Gewicht, [DATA03] as Type, [DATA04] as THT, [DATA05] as Medewerker, [WgtDate] as Weegdatum FROM [dbo].[DATA] WHERE [DATA06] = 1"
         stock_df = pd.read_sql(query, db.bind)
         
         row_count = stock_df.shape[0]
@@ -3535,5 +3643,79 @@ def detect_deleted_row_potjes_page7(current_data, previous_data):
 
     return alert_msg, current_data
 
+#%%% CALLBACKS PAGE 8 [ORDERS]
+# Callback to populate the stock overview table on Page 8
+@app.callback(
+    [Output("orders-header", "children"),
+     Output('orders-table', 'data')],
+    [Input('search-button-page8', 'n_clicks')],
+    [State('store-dropdown-page8', 'value'),
+     State('order-date-page8', 'value'),
+     State('barcode-ijs-page8', 'value'),
+     State('smaak-ijs-page8', 'value')]
+)
+def search_orders_table(n_clicks, store, order_date, barcode, smaak):
+    if n_clicks:
+        try:
+            # Create a database session using SessionLocal
+            db = SessionLocal()
+            
+            store_label = next((item['label'] for item in stores if item['value'] == store), None)
+            
+            # Execute the query using SQLAlchemy
+            # query = "SELECT [WgtDateTime], [ID], [Scale], [Description], [ValueNet], [Type] FROM [dbo].[DATA] WHERE [InStock] = 1"
+            query_orders = "SELECT [Barcode] as Barcode, [Omschrijving] as Omschrijving, [Winkel] as Winkel, [Order Datum] as Datum FROM [dbo].[ORDERS] WHERE 1=1"
+            
+            # Add filters based on input values
+            if store_label:
+                query_orders  += f" AND [Winkel] = '{store_label}'"
+            if order_date:
+                query_orders  += f" AND [Order Datum] = '{order_date}'"
+            if barcode:
+                query_orders  += f" AND [Barcode] LIKE '%{barcode}%'"
+            if smaak:
+                query_orders  += f" AND [Omschrijving] LIKE '%{smaak}%'"
+            
+            orders_df  = pd.read_sql(query_orders, db.bind)
+            
+            # Fetch related data from the DATA table
+            if not orders_df.empty:
+                barcodes = "','".join(orders_df['Barcode'].unique())
+                query_data = f"""
+                SELECT [DATA01] as Barcode, [WgtDate], [DATA05]
+                FROM [dbo].[DATA]
+                WHERE [DATA01] IN ('{barcodes}')
+                """
+                data_df = pd.read_sql(query_data, db.bind)
+                
+                # Merge the data from DATA table with orders_df
+                merged_df = orders_df.merge(data_df, how='left', left_on='Barcode', right_on='Barcode')
+                
+                # Rename the columns
+                merged_df.rename(columns={
+                    'WgtDate': 'Weegdatum',
+                    'DATA05': 'Medewerker'
+                }, inplace=True)
+                
+                row_count = merged_df.shape[0]
+                header = f"ORDERS - Aantal: {row_count} bakken"
+                stock_data = merged_df.to_dict('records')
+                
+                return header, stock_data
+            
+            row_count = orders_df.shape[0]
+            header = f"ORDERS - Aantal: {row_count} bakken"
+            stock_data = orders_df.to_dict('records')
+            return header, stock_data
+        
+        except Exception as e:
+            logging.error("Error fetching data:", e)  # Consider using logging for error messages
+            return None, []  # Return empty list or display an error message
+        finally:
+            # Ensure session is closed even on exceptions
+            db.close()
+    raise PreventUpdate  # Don't update if not on Page 2
+    
+    
 if __name__ == '__main__':
     app.run_server(debug=True)
