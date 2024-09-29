@@ -1,7 +1,8 @@
 CREATE TABLE [dbo].[DIVERSEN] (
     [ID] [int] IDENTITY(1,1) NOT NULL,
-    [Description] [nvarchar](100) NULL,
-    [ItemCount] [int] NULL,
+	[Barcode] [nvarchar](100) NULL,
+    [Omschrijving] [nvarchar](100) NULL,
+    [Aantal] [int] NULL,
     CONSTRAINT [PK_DIVERSEN] PRIMARY KEY CLUSTERED 
     (
         [ID] ASC
@@ -16,12 +17,12 @@ CREATE TABLE [dbo].[DIVERSEN] (
 
 -- Insert dummy data
 INSERT INTO [dbo].[DIVERSEN] 
-    (Description, ItemCount)
-VALUES ('Item 1', 10),
-       ('Item 2', 15),
-       ('Item 3', 20),
-       ('Item 4', 8),
-       ('Item 5', 12),
-       ('Item 6', 18),
-       ('Item 7', 25),
-       ('Item 8', 30);
+    (Barcode, Omschrijving, Aantal)
+VALUES (1, 'Item 1', 10),
+       (2, 'Item 2', 15),
+       (3, 'Item 3', 20),
+       (4, 'Item 4', 8),
+       (5, 'Item 5', 12),
+       (6, 'Item 6', 18),
+       (7, 'Item 7', 25),
+       (8, 'Item 8', 30);

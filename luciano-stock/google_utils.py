@@ -1,6 +1,7 @@
 from __future__ import print_function
 import os.path
 import datetime
+import time
 
 # import requests
 from google.auth.transport.requests import Request
@@ -84,54 +85,60 @@ def write_data_to_appsheet(data):
     RANGE_NAME = 'Orders!A:I'
     
     creds = authenticate()
+    
+    success = False
+    
+    while not success:
+        
+        try:
+            service = build('sheets', 'v4', credentials=creds)
             
-    try:
-        service = build('sheets', 'v4', credentials=creds)
-        
-        # Get the current data in the "Orders" tab
-        result = service.spreadsheets().values().get(
-            spreadsheetId=SPREADSHEET_ID,
-            range=RANGE_NAME
-        ).execute()
-        values = result.get('values', [])
-
-        # Check if the Order ID already exists
-        existing_order_ids = [row[0] for row in values]
-        order_id = data[0]
-        # print(existing_order_ids[0])
-        if order_id in existing_order_ids:
-            # If the Order ID exists, find the index of the row
-            row_index = existing_order_ids.index(order_id) + 1
- 
-            # Define the new range for the data
-            new_range_name = f'Orders!A{row_index}:I{row_index}'
-
-        else:
-            # Calculate the next row number for the new entry
-            next_row_number = len(values) + 1
-            # Define the new range for the data
-            new_range_name = f'Orders!A{next_row_number}:I{next_row_number}'
-
-            start_index = len(values)
-            number_of_rows = 1
-            insert_rows(service, SPREADSHEET_ID, start_index, number_of_rows)
-
-        # Prepare your data to be written to the sheet
-        # value_data = [data]
-        value_data = [data]
-        
-        # Call the Sheets API to update the values
-        result = service.spreadsheets().values().update(
-            spreadsheetId=SPREADSHEET_ID,
-            range=new_range_name,
-            valueInputOption="USER_ENTERED",
-            body={"values": value_data}
-        ).execute()
-        
-        print(f"Pakbon {data[0]} succesvol toegevoegd aan Luciano Delivery App! (google_sheet_id: {SPREADSHEET_ID})")
-        # print(data)
-    except HttpError as err:
-        print(err)
+            # Get the current data in the "Orders" tab
+            result = service.spreadsheets().values().get(
+                spreadsheetId=SPREADSHEET_ID,
+                range=RANGE_NAME
+            ).execute()
+            values = result.get('values', [])
+    
+            # Check if the Order ID already exists
+            existing_order_ids = [row[0] for row in values]
+            order_id = data[0]
+            # print(existing_order_ids[0])
+            if order_id in existing_order_ids:
+                # If the Order ID exists, find the index of the row
+                row_index = existing_order_ids.index(order_id) + 1
+     
+                # Define the new range for the data
+                new_range_name = f'Orders!A{row_index}:I{row_index}'
+    
+            else:
+                # Calculate the next row number for the new entry
+                next_row_number = len(values) + 1
+                # Define the new range for the data
+                new_range_name = f'Orders!A{next_row_number}:I{next_row_number}'
+    
+                start_index = len(values)
+                number_of_rows = 1
+                insert_rows(service, SPREADSHEET_ID, start_index, number_of_rows)
+    
+            # Prepare your data to be written to the sheet
+            # value_data = [data]
+            value_data = [data]
+            
+            # Call the Sheets API to update the values
+            result = service.spreadsheets().values().update(
+                spreadsheetId=SPREADSHEET_ID,
+                range=new_range_name,
+                valueInputOption="USER_ENTERED",
+                body={"values": value_data}
+            ).execute()
+            
+            print(f"Pakbon {data[0]} succesvol toegevoegd aan Luciano Delivery App! (google_sheet_id: {SPREADSHEET_ID})")
+            success = True
+            
+        except HttpError as err:
+            print(err)
+            time.sleep(3)
 
 def insert_rows(service, spreadsheet_id, start_index, number_of_rows):
     body = {
@@ -188,7 +195,7 @@ def upload_pdf_to_drive(pdf_path):
     except HttpError as err:
         print(err)
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
 
     # new_entry = [
     #     "ORD12345",     # Order ID
@@ -203,10 +210,10 @@ if __name__ == '__main__':
 
     # write_data_to_appsheet(new_entry)
     
-    pdf_path = 'Orders_Pdfs\BKDH_2024-03-08.pdf'
+    # pdf_path = 'Orders_Pdfs\BKDH_2024-03-08.pdf'
     
-    # ID of the Google Drive folder where you want to upload the PDF
-    folder_id = '1MqPvv1ATRoMh3sRu9qDEuH6ty3nE0HmR'
+    # # ID of the Google Drive folder where you want to upload the PDF
+    # folder_id = '1jiyFm7hLyLGm1DNGsW3Z5lYik8gNZtlf'
     
-    # Upload the PDF to the specified folder
-    upload_pdf_to_drive(pdf_path, folder_id)
+    # # Upload the PDF to the specified folder
+    # upload_pdf_to_drive(pdf_path, folder_id)
